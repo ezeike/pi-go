@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,12 +302,18 @@ func TestRunLogin_PromptCanceled(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestRunPKCEFlow_BrowserError(t *testing.T) {
-	// Supply an openBrowser that always returns an error. Because we can't
-	// inject that through runPKCEFlow (it hardcodes openBrowser), we use
-	// a provider with no valid config so auth.PKCEFlow errors during setup.
+	// auth.PKCEFlow calls openBrowser(authURL) unconditionally — it never
+	// validates prov.AuthURL/ClientID or checks ctx first — so an
+	// empty-config provider does not stop it from reaching openBrowser.
+	// Must mock, same as the sibling tests below.
+	orig := openBrowser
+	wantErr := errors.New("mocked browser error")
+	openBrowser = func(string) error { return wantErr }
+	t.Cleanup(func() { openBrowser = orig })
+
 	prov := auth.Provider{
 		Name:     "testdummy",
-		AuthURL:  "", // Empty auth URL => error during flow.
+		AuthURL:  "",
 		TokenURL: "",
 		ClientID: "",
 	}
@@ -314,11 +321,9 @@ func TestRunPKCEFlow_BrowserError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Pre-canceled context.
 
-	// auth.PKCEFlow starts a local listener; may fail fast for bogus provider.
-	// We just verify no panic and check for an error return.
 	_, err := runPKCEFlow(ctx, prov)
-	if err == nil {
-		t.Log("runPKCEFlow returned nil (unexpected for bogus provider, but not fatal)")
+	if err == nil || !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("runPKCEFlow() error = %v, want an error wrapping %q", err, wantErr)
 	}
 }
 
