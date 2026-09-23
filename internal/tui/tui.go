@@ -460,7 +460,15 @@ func (m *model) allSearchCandidates() []CompletionCandidate {
 	return allSlashCommandCandidates(skills)
 }
 
-// filterSearch filters items by search query (case-insensitive substring on Text).
+// filterSearch filters items by search query: a case-insensitive substring
+// match on Text (the command name, or the history entry) only.
+//
+// Description is deliberately excluded. It used to be matched too, but a
+// query like "model" then matched both "/model" and "/model-price-refresh"
+// (whose *name* also contains "model") plus any command whose description
+// happened to mention the word — none of which is what typing a command name
+// means to select. History-mode items carry no Description at all, so this
+// change is a no-op there.
 func (sp *searchPopupState) filterSearch() {
 	if sp.search == "" {
 		sp.filtered = sp.entries
@@ -471,7 +479,7 @@ func (sp *searchPopupState) filterSearch() {
 	q := strings.ToLower(sp.search)
 	var filtered []SearchItem
 	for _, e := range sp.entries {
-		if strings.Contains(strings.ToLower(e.Text), q) || strings.Contains(strings.ToLower(e.Description), q) {
+		if strings.Contains(strings.ToLower(e.Text), q) {
 			filtered = append(filtered, e)
 		}
 	}
