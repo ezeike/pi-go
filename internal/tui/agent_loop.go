@@ -1401,6 +1401,7 @@ func (m *model) handleAgentThinking(msg agentThinkingMsg) (tea.Model, tea.Cmd) {
 		m.face.SetMood(MoodThinking)
 	}
 	m.matrix.feed(msg.text, m.mainWidth())
+	beforeLines := m.chatModel.TailLineCount()
 	// Thinking buffers the open reasoning block only, for the same reason
 	// Streaming does in handleAgentText: a tool call between two reasoning
 	// blocks starts a new message, and a carried-over buffer would repeat the
@@ -1414,7 +1415,7 @@ func (m *model) handleAgentThinking(msg agentThinkingMsg) (tea.Model, tea.Cmd) {
 			role: "thinking", content: m.chatModel.Thinking,
 		})
 	}
-	m.chatModel.Scroll = 0
+	m.chatModel.FollowTail(beforeLines, m.messageViewportHeight())
 	return m, waitForAgent(m.agentCh)
 }
 
@@ -1451,6 +1452,7 @@ func (m *model) handleAgentText(msg agentTextMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.matrix.feed(msg.text, m.mainWidth())
+	beforeLines := m.chatModel.TailLineCount()
 	// Keep chronology stable: only update a trailing assistant message.
 	// If the latest message is a tool event, append a new assistant message
 	// so rendered order matches event order.
@@ -1477,7 +1479,7 @@ func (m *model) handleAgentText(msg agentTextMsg) (tea.Model, tea.Cmd) {
 			content: m.chatModel.Streaming,
 		})
 	}
-	m.chatModel.Scroll = 0
+	m.chatModel.FollowTail(beforeLines, m.messageViewportHeight())
 	if len(m.chatModel.TraceLog) > 0 && m.chatModel.TraceLog[len(m.chatModel.TraceLog)-1].kind == "llm" {
 		m.chatModel.TraceLog[len(m.chatModel.TraceLog)-1].detail = m.chatModel.Streaming
 	} else {
@@ -1888,6 +1890,7 @@ func (m *model) handleBashEvent(msg agentSubEventMsg) (tea.Model, tea.Cmd) {
 		return m, waitForSubEvent(m.cfg.AgentEventCh)
 	}
 
+	beforeLines := m.chatModel.TailLineCount()
 	for i := len(m.chatModel.Messages) - 1; i >= 0; i-- {
 		if m.chatModel.Messages[i].tool != "bash" || m.chatModel.Messages[i].agentID != msg.agentID {
 			continue
@@ -1899,7 +1902,7 @@ func (m *model) handleBashEvent(msg agentSubEventMsg) (tea.Model, tea.Cmd) {
 		m.chatModel.Messages[i].agentEvents = evs
 		break
 	}
-	m.chatModel.Scroll = 0
+	m.chatModel.FollowTail(beforeLines, m.messageViewportHeight())
 	return m, waitForSubEvent(m.cfg.AgentEventCh)
 }
 
@@ -1929,6 +1932,7 @@ func (m *model) handleAgentSubEvent(msg agentSubEventMsg) (tea.Model, tea.Cmd) {
 		return m.handleBashEvent(msg)
 	}
 	m.matrix.feed(msg.kind+msg.content, m.mainWidth())
+	beforeLines := m.chatModel.TailLineCount()
 	if msg.kind == "spawn" {
 		// Agent IDs from the orchestrator are "<agent-name>-<unix-nano>".
 		// Prefer matching the spawn to an unassigned card whose agentType
@@ -1965,7 +1969,7 @@ func (m *model) handleAgentSubEvent(msg agentSubEventMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	m.chatModel.Scroll = 0
+	m.chatModel.FollowTail(beforeLines, m.messageViewportHeight())
 	return m, waitForSubEvent(m.cfg.AgentEventCh)
 }
 

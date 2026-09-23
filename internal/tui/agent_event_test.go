@@ -798,12 +798,16 @@ func TestAgentSubEvent_UnknownAgentIDIgnored(t *testing.T) {
 	}
 }
 
-func TestAgentSubEvent_ResetsScroll(t *testing.T) {
+// TestAgentSubEvent_PinnedFollowsTail confirms a subagent live event still
+// snaps to the bottom when the reader hasn't scrolled away from it (the
+// pinned/default case, Scroll == 0).
+func TestAgentSubEvent_PinnedFollowsTail(t *testing.T) {
 	ch := make(chan AgentSubEvent, 1)
 	m := &model{
-		cfg: Config{AgentEventCh: ch},
+		cfg:    Config{AgentEventCh: ch},
+		height: 40,
 		chatModel: ChatModel{
-			Scroll: 5,
+			Scroll: 0,
 			Messages: []message{
 				{role: "tool", tool: "agent", agentID: "sub-1"},
 			},
@@ -817,7 +821,40 @@ func TestAgentSubEvent_ResetsScroll(t *testing.T) {
 	})
 	mm := newM.(*model)
 	if mm.chatModel.Scroll != 0 {
-		t.Errorf("expected scroll reset to 0, got %d", mm.chatModel.Scroll)
+		t.Errorf("expected scroll to stay pinned at 0, got %d", mm.chatModel.Scroll)
+	}
+}
+
+// TestAgentSubEvent_ScrolledUpHoldsPosition confirms a subagent live event no
+// longer yanks a scrolled-up reader back to the bottom: the absolute view
+// must hold still, which means Scroll grows by the new lines added instead
+// of resetting to 0.
+func TestAgentSubEvent_ScrolledUpHoldsPosition(t *testing.T) {
+	// The transcript must be taller than the viewport, or MaxScroll is 0 and
+	// there is nothing to hold position against — a fixture with only one
+	// short message can never have a legitimate Scroll > 0 to begin with.
+	filler := make([]message, 60)
+	for i := range filler {
+		filler[i] = message{role: "assistant", content: "filler line"}
+	}
+	ch := make(chan AgentSubEvent, 1)
+	m := &model{
+		cfg:    Config{AgentEventCh: ch},
+		height: 40,
+		chatModel: ChatModel{
+			Scroll:   5,
+			Messages: append(filler, message{role: "tool", tool: "agent", agentID: "sub-1"}),
+		},
+	}
+
+	newM, _ := m.Update(agentSubEventMsg{
+		agentID: "sub-1",
+		kind:    "tool_call",
+		content: "read",
+	})
+	mm := newM.(*model)
+	if mm.chatModel.Scroll <= 0 {
+		t.Errorf("expected scroll to grow to hold position, got %d", mm.chatModel.Scroll)
 	}
 }
 

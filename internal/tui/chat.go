@@ -345,9 +345,18 @@ func (c *ChatModel) AppendWarning(text string) {
 // dropped along with it: it holds the text of the block that just closed, and
 // the next delta appends to whatever is left in it, so a stale buffer replays
 // the previous block inside the new one.
+//
+// Scroll is left alone when the reader has scrolled away from the bottom
+// (Scroll != 0). This runs from AppendError/AppendWarning/AppendMeta, and the
+// last of those fires at the end of nearly every turn (the per-turn usage
+// line) — resetting here unconditionally meant a scrolled-up reader got
+// yanked to the bottom the instant a response finished, even after the
+// mid-stream delta handlers stopped doing that. The note being appended is a
+// single short line in the common case, so a plain guard is enough here;
+// unlike the streaming deltas (see FollowTail), it doesn't need exact
+// line-delta tracking to avoid a noticeable jump.
 func (c *ChatModel) closeStreamingBlock() {
 	c.Streaming = ""
-	c.Scroll = 0
 }
 
 // AppendNotice adds a system notice to the transcript — a skipped MCP server, a
@@ -403,6 +412,36 @@ func (c *ChatModel) ScrollDown(n int) {
 	c.Scroll -= n
 	if c.Scroll < 0 {
 		c.Scroll = 0
+	}
+}
+
+// TailLineCount returns the current rendered line count. Capture it before a
+// mutation that appends streamed content, then hand it to FollowTail after
+// the mutation to hold a scrolled-up view still instead of snapping to the
+// bottom.
+func (c *ChatModel) TailLineCount() int {
+	return strings.Count(c.RenderMessages(true), "\n") + 1
+}
+
+// FollowTail keeps the view pinned to the live edge when the user hasn't
+// scrolled away from it (Scroll == 0, the common case), and otherwise holds
+// the visible content still while new lines stream in below it: beforeLines
+// is the line count TailLineCount reported just before the mutation, so the
+// growth since then is added to Scroll rather than the offset being dropped
+// to 0 — the old behavior, which yanked a scrolled-up reader straight back to
+// the bottom on every delta. height is the message viewport height, used to
+// clamp against MaxScroll the same way ScrollUp does.
+func (c *ChatModel) FollowTail(beforeLines, height int) {
+	if c.Scroll == 0 {
+		return
+	}
+	afterLines := c.TailLineCount()
+	c.Scroll += afterLines - beforeLines
+	if c.Scroll < 0 {
+		c.Scroll = 0
+	}
+	if maxScroll := c.MaxScroll(height); c.Scroll > maxScroll {
+		c.Scroll = maxScroll
 	}
 }
 

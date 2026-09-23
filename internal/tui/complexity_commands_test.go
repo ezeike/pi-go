@@ -1036,6 +1036,13 @@ func TestCplxApplyRunTextDelta(t *testing.T) {
 			{role: "assistant", content: "stale"},
 			{role: "tool", content: "t"},
 		}
+		// Pad the transcript past the viewport height: with only two short
+		// messages, MaxScroll is 0 and any Scroll > 0 gets clamped straight
+		// back down regardless of the fix under test, so the assertion below
+		// would pass even without it.
+		for i := 0; i < 60; i++ {
+			m.chatModel.Messages = append(m.chatModel.Messages, message{role: "tool", content: "filler line"})
+		}
 		m.chatModel.Scroll = 7
 		m.applyRunTextDelta(subagent.Event{Type: "text_delta", Content: "hel"})
 		m.applyRunTextDelta(subagent.Event{Type: "text_delta", Content: "lo"})
@@ -1046,8 +1053,8 @@ func TestCplxApplyRunTextDelta(t *testing.T) {
 		if m.chatModel.Messages[0].content != "hello" {
 			t.Errorf("assistant message = %q, want %q", m.chatModel.Messages[0].content, "hello")
 		}
-		if m.chatModel.Scroll != 0 {
-			t.Errorf("Scroll = %d, want 0 (a delta jumps to the bottom)", m.chatModel.Scroll)
+		if m.chatModel.Scroll <= 0 {
+			t.Errorf("Scroll = %d, want > 0 (a delta while scrolled up must hold position, not jump to the bottom)", m.chatModel.Scroll)
 		}
 	})
 

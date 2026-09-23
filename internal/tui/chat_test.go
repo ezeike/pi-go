@@ -610,8 +610,11 @@ func TestChatModel_AppendWarning(t *testing.T) {
 	if msg.content != "danger!" {
 		t.Errorf("expected content='danger!', got %q", msg.content)
 	}
-	if cm.Scroll != 0 {
-		t.Errorf("expected Scroll reset to 0, got %d", cm.Scroll)
+	// A scrolled-up reader keeps their position when a warning/error/meta
+	// notice closes the streaming block — only a pinned view (Scroll == 0)
+	// stayed pinned; see closeStreamingBlock's doc comment.
+	if cm.Scroll != 10 {
+		t.Errorf("expected Scroll to stay at 10 (unchanged), got %d", cm.Scroll)
 	}
 }
 

@@ -755,6 +755,7 @@ func (m *model) handleRunAgentEvent(msg runAgentEventMsg) (tea.Model, tea.Cmd) {
 // applyRunTextDelta appends streamed text to the open assistant message and
 // folds it into the trailing LLM trace entry.
 func (m *model) applyRunTextDelta(ev subagent.Event) {
+	beforeLines := m.chatModel.TailLineCount()
 	m.chatModel.Streaming += ev.Content
 	if m.run != nil {
 		m.run.transcript.WriteString(ev.Content)
@@ -766,7 +767,7 @@ func (m *model) applyRunTextDelta(ev subagent.Event) {
 			break
 		}
 	}
-	m.chatModel.Scroll = 0
+	m.chatModel.FollowTail(beforeLines, m.messageViewportHeight())
 	// Trace.
 	if len(m.chatModel.TraceLog) > 0 && m.chatModel.TraceLog[len(m.chatModel.TraceLog)-1].kind == "llm" {
 		m.chatModel.TraceLog[len(m.chatModel.TraceLog)-1].detail = m.chatModel.Streaming
