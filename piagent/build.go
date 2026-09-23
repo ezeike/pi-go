@@ -2,6 +2,7 @@ package piagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	adktool "google.golang.org/adk/v2/tool"
 
 	"github.com/dimetron/pi-go/internal/agent"
+	"github.com/dimetron/pi-go/internal/blockbuilder"
 	"github.com/dimetron/pi-go/internal/config"
 	"github.com/dimetron/pi-go/internal/extension"
 	"github.com/dimetron/pi-go/internal/gitroot"
@@ -151,6 +153,15 @@ func buildToolsets(cfg config.Config) []adktool.Toolset {
 	}
 	if llms := cfg.LLMSSources(); llms != nil {
 		toolsets = append(toolsets, tools.NewLLMSCachedToolset(llms))
+	}
+	if spec, run, err := blockbuilder.NewClient(); err == nil {
+		toolsets = append(toolsets, blockbuilder.NewBlockBuilderToolset(spec, run))
+	} else if !errors.Is(err, blockbuilder.ErrNotConfigured) {
+		// D8: unconfigured is silent (tool absent); any other error (e.g. a
+		// present-but-invalid BLOCK_BUILDER_URL) gets exactly one slog.Warn at
+		// wiring time, per the recorded error/logging strategy — never
+		// per-call, never logging the API key itself.
+		slog.Warn("piagent: block-builder toolset unavailable", "error", err)
 	}
 	return toolsets
 }

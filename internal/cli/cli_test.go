@@ -1367,3 +1367,40 @@ func TestProviderEnvVarAllCases(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildToolsets_BlockBuilderAbsentWithoutURL and
+// TestBuildToolsets_BlockBuilderPresentWithURL cover buildToolsets' block-builder gating
+// (impl-specs/toolset.md task 9). Gating lives entirely inside the sibling client component's
+// blockbuilder.NewClient() ("empty BLOCK_BUILDER_URL means ErrNotConfigured" is that
+// component's contract, not reimplemented here) — these tests exercise through the real
+// env-resolution path via BLOCK_BUILDER_URL/BLOCK_BUILDER_API_KEY, t.Chdir'd into an empty
+// t.TempDir() so no ambient .env file (config.LookupEnv's CWD-relative fallback) interferes.
+func TestBuildToolsets_BlockBuilderAbsentWithoutURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BLOCK_BUILDER_URL", "")
+	t.Setenv("BLOCK_BUILDER_API_KEY", "")
+
+	toolsets := buildToolsets(config.Config{})
+	for _, ts := range toolsets {
+		if ts.Name() == "block-builder" {
+			t.Fatal("block-builder toolset present with no BLOCK_BUILDER_URL configured")
+		}
+	}
+}
+
+func TestBuildToolsets_BlockBuilderPresentWithURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BLOCK_BUILDER_URL", "http://localhost:8080")
+	t.Setenv("BLOCK_BUILDER_API_KEY", "test-key")
+
+	toolsets := buildToolsets(config.Config{})
+	found := false
+	for _, ts := range toolsets {
+		if ts.Name() == "block-builder" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("block-builder toolset absent with BLOCK_BUILDER_URL set")
+	}
+}

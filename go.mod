@@ -9,7 +9,9 @@ require (
 	github.com/a2aproject/a2a-go/v2 v2.5.0
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/anthropics/anthropic-sdk-go v1.71.0
+	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/glamour v1.0.0
+	github.com/charmbracelet/ultraviolet v0.0.0-20260812204455-68fa937c71be
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/coder/acp-go-sdk v0.13.5
@@ -19,8 +21,10 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/in-toto/attestation v1.2.0
 	github.com/kagent-dev/mockllm v0.0.6
 	github.com/knights-analytics/hugot v0.7.8
+	github.com/machina/block-builder/sdk v0.0.0-00010101000000-000000000000
 	github.com/mattn/go-runewidth v0.0.28
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/reflow v0.3.0
@@ -55,6 +59,7 @@ require (
 	cloud.google.com/go/auth v0.23.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	connectrpc.com/connect v1.19.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -64,9 +69,7 @@ require (
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260812204455-68fa937c71be // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/exp/golden v0.0.0-20260330094520-2dce04b6f8a4 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20260813141921-f091cedeaf78 // indirect
@@ -122,7 +125,6 @@ require (
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
-	github.com/in-toto/attestation v1.2.0 // indirect
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
@@ -196,3 +198,10 @@ replace github.com/coder/acp-go-sdk => ./third_party/acp-go-sdk
 // ollama/ollama switches its internal/orderedmap wrapper to the fork (or drops
 // the dependency).
 replace github.com/wk8/go-ordered-map/v2 => ./third_party/go-ordered-map
+
+// Relative to the primary checkout (~/src/coding-agents/pi-go). A forge/dev
+// worktree lives one directory deeper (~/src/coding-agents/pi-go-worktrees/<task>),
+// so this path only resolves there via a sibling symlink:
+//   ln -s ~/src/machina ~/src/coding-agents/machina
+// matching the convention block-builder's own repo uses for the same reason.
+replace github.com/machina/block-builder/sdk => ../../machina/block-builder/sdk
