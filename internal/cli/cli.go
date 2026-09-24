@@ -125,7 +125,7 @@ Run with no prompt for the interactive TUI; pass a prompt to answer once and exi
 The provider is inferred from the model name, so --model is usually the only
 routing you need:
 
-  claude-*                 Anthropic       ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)
+  claude-*                 Anthropic       ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN)
   gpt-*                    OpenAI          OPENAI_API_KEY
   gemini-*                 Google Gemini   GEMINI_API_KEY (or GOOGLE_API_KEY)
   mistral-*, magistral-*   Mistral         MISTRAL_API_KEY

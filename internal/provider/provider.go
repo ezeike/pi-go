@@ -419,7 +419,13 @@ func matchPrefix(prefixes []string, lower string) bool {
 func apiKeyForProvider(p string) string {
 	switch p {
 	case "anthropic":
-		return os.Getenv("ANTHROPIC_API_KEY")
+		if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" {
+			return v
+		}
+		if v := os.Getenv("ANTHROPIC_AUTH_TOKEN"); v != "" {
+			return v
+		}
+		return os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")
 	case "openai":
 		return os.Getenv("OPENAI_API_KEY")
 	case "gemini":

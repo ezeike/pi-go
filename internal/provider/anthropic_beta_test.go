@@ -140,7 +140,7 @@ func TestAntGenaiToolsToBetaAnthropic(t *testing.T) {
 				},
 			},
 		}
-		out := antGenaiToolsToBetaAnthropic(tools)
+		out := antGenaiToolsToBetaAnthropic(tools, false)
 		if len(out) != 1 {
 			t.Fatalf("expected 1 beta tool, got %d", len(out))
 		}
@@ -166,7 +166,7 @@ func TestAntGenaiToolsToBetaAnthropic(t *testing.T) {
 				},
 			},
 		}
-		out := antGenaiToolsToBetaAnthropic(tools)
+		out := antGenaiToolsToBetaAnthropic(tools, false)
 		if len(out) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(out))
 		}
@@ -189,7 +189,7 @@ func TestAntGenaiToolsToBetaAnthropic(t *testing.T) {
 				},
 			},
 		}
-		out := antGenaiToolsToBetaAnthropic(tools)
+		out := antGenaiToolsToBetaAnthropic(tools, false)
 		if len(out) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(out))
 		}
@@ -210,7 +210,7 @@ func TestBuildBetaParams(t *testing.T) {
 		}
 		messages, _ := antContentsToMessages([]*genai.Content{
 			{Role: "user", Parts: []*genai.Part{{Text: "Hi"}}},
-		}, nil)
+		}, nil, false)
 
 		params := m.buildBetaParams("claude-sonnet-4-6", messages, "", 8192, nil, nil)
 		if params.Model != "claude-sonnet-4-6" {
@@ -250,7 +250,7 @@ func TestBuildBetaParams(t *testing.T) {
 			SystemInstruction: &genai.Content{
 				Parts: []*genai.Part{{Text: "system text"}},
 			},
-		})
+		}, false)
 		if sys != "system text" {
 			t.Fatalf("sys = %q", sys)
 		}
@@ -278,7 +278,7 @@ func TestBuildBetaParams(t *testing.T) {
 		m := &anthropicModel{advisorModel: "claude-opus-4-7"}
 		messages, _ := antContentsToMessages([]*genai.Content{
 			{Role: "user", Parts: []*genai.Part{{Text: "Hi"}}},
-		}, nil)
+		}, nil, false)
 		cfg := &genai.GenerateContentConfig{
 			Tools: []*genai.Tool{
 				{
@@ -305,7 +305,7 @@ func TestBuildBetaParams(t *testing.T) {
 		messages, _ := antContentsToMessages([]*genai.Content{
 			{Role: "user", Parts: []*genai.Part{{Text: "Hi"}}},
 			{Role: "model", Parts: []*genai.Part{{Text: "Hello"}}},
-		}, nil)
+		}, nil, false)
 		params := m.buildBetaParams("claude-sonnet-4-6", messages, "", 8192, nil, nil)
 		if len(params.Messages) != 2 {
 			t.Fatalf("expected 2 beta messages, got %d", len(params.Messages))

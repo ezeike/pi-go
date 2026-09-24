@@ -46,6 +46,7 @@ var DefaultEnvAllowlist = []string{
 	// LLM provider API keys and base URLs — required for subagent pi processes.
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
+	"CLAUDE_CODE_OAUTH_TOKEN",
 	"ANTHROPIC_BASE_URL",
 	"OPENAI_API_KEY",
 	"OPENAI_BASE_URL",

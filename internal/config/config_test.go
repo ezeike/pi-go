@@ -250,6 +250,28 @@ func TestAPIKeys(t *testing.T) {
 	}
 }
 
+func TestAPIKeysAnthropicOAuthFallback(t *testing.T) {
+	t.Run("CLAUDE_CODE_OAUTH_TOKEN used when nothing else is set", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_API_KEY", "")
+		t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+		t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+
+		if got := APIKeys()["anthropic"]; got != "sk-ant-oat01-test" {
+			t.Errorf("anthropic key = %q, want the CLAUDE_CODE_OAUTH_TOKEN value", got)
+		}
+	})
+
+	t.Run("ANTHROPIC_API_KEY still wins when both are set", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_API_KEY", "sk-ant-api03-real-key")
+		t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+		t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+
+		if got := APIKeys()["anthropic"]; got != "sk-ant-api03-real-key" {
+			t.Errorf("anthropic key = %q, want ANTHROPIC_API_KEY to take precedence", got)
+		}
+	})
+}
+
 func TestBaseURLs(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://localhost:11434")
 	t.Setenv("OPENAI_BASE_URL", "")

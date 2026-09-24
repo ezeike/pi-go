@@ -298,11 +298,11 @@ func cogBMarshal(t *testing.T, v any) string {
 func TestCogProviderBToolConverterGoldens(t *testing.T) {
 	for _, tc := range cogBToolCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			gotStd := cogBMarshal(t, antGenaiToolsToAnthropic(tc.tools))
+			gotStd := cogBMarshal(t, antGenaiToolsToAnthropic(tc.tools, false))
 			if gotStd != tc.want {
 				t.Errorf("antGenaiToolsToAnthropic:\n got %s\nwant %s", gotStd, tc.want)
 			}
-			gotBeta := cogBMarshal(t, antGenaiToolsToBetaAnthropic(tc.tools))
+			gotBeta := cogBMarshal(t, antGenaiToolsToBetaAnthropic(tc.tools, false))
 			if gotBeta != tc.want {
 				t.Errorf("antGenaiToolsToBetaAnthropic:\n got %s\nwant %s", gotBeta, tc.want)
 			}

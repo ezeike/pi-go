@@ -718,11 +718,16 @@ func loadFile(path string, cfg *Config) error {
 }
 
 // APIKeys returns detected API keys from environment variables.
-// For Anthropic, checks ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (Ollama compatibility).
+// For Anthropic, checks ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN (Ollama
+// compatibility), and CLAUDE_CODE_OAUTH_TOKEN — a Claude subscription OAuth
+// token minted by `claude setup-token`, not a metered API key. Anthropic's own
+// provider code detects it by its sk-ant-oat prefix regardless of which of
+// these three vars carried it, but the dedicated name avoids the value being
+// mistaken for a real API key when read back out of a .env file.
 func APIKeys() map[string]string {
 	keys := make(map[string]string)
 	envVars := map[string][]string{
-		"anthropic":    {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
+		"anthropic":    {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"},
 		"openai":       {"OPENAI_API_KEY"},
 		"azure":        {"AZUREOPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_API_KEY"},
 		"gemini":       {"GEMINI_API_KEY", "GOOGLE_API_KEY"},

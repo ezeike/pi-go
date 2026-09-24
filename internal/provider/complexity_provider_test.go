@@ -260,7 +260,7 @@ func marshalGolden(t *testing.T, v any) string {
 }
 
 func TestAntContentsToMessages_Golden(t *testing.T) {
-	messages, system := antContentsToMessages(conversionFixture(), fixtureConfig())
+	messages, system := antContentsToMessages(conversionFixture(), fixtureConfig(), false)
 
 	if system != "sys one\nsys two" {
 		t.Errorf("system = %q, want %q", system, "sys one\nsys two")
@@ -487,7 +487,7 @@ func TestContentsToMessages_EmptyConversationGetsPlaceholder(t *testing.T) {
 		{Role: "system", Parts: []*genai.Part{{Text: "skipped"}}},
 	}
 
-	antMessages, _ := antContentsToMessages(onlySystem, config)
+	antMessages, _ := antContentsToMessages(onlySystem, config, false)
 	if len(antMessages) != 1 || antMessages[0].Role != anthropic.MessageParamRoleUser {
 		t.Fatalf("anthropic placeholder = %s", marshalGolden(t, antMessages))
 	}
@@ -532,7 +532,7 @@ func TestContentsToMessages_ToolCallOnUserRoleFallsThroughToText(t *testing.T) {
 		},
 	}}
 
-	antMessages, _ := antContentsToMessages(contents, nil)
+	antMessages, _ := antContentsToMessages(contents, nil, false)
 	if len(antMessages) != 1 || antMessages[0].Role != anthropic.MessageParamRoleUser {
 		t.Fatalf("anthropic = %s", marshalGolden(t, antMessages))
 	}
@@ -558,7 +558,7 @@ func TestContentsToMessages_ToolCallWithNoTextEmitsNoAssistantText(t *testing.T)
 		}},
 	}
 
-	antMessages, _ := antContentsToMessages(contents, nil)
+	antMessages, _ := antContentsToMessages(contents, nil, false)
 	if len(antMessages) != 2 {
 		t.Fatalf("anthropic messages = %d, want 2", len(antMessages))
 	}
@@ -580,7 +580,7 @@ func TestContentsToMessages_ToolCallWithNoTextEmitsNoAssistantText(t *testing.T)
 
 func TestAntToolUseMessages_UnmatchedCallGetsPlaceholderResult(t *testing.T) {
 	calls := []*genai.FunctionCall{{ID: "missing", Name: "fn", Args: map[string]any{"a": 1}}}
-	messages := antToolUseMessages(nil, calls, map[string]*genai.FunctionResponse{})
+	messages := antToolUseMessages(nil, calls, map[string]*genai.FunctionResponse{}, false)
 
 	if len(messages) != 2 {
 		t.Fatalf("got %d messages, want 2", len(messages))
@@ -611,7 +611,7 @@ func TestAntToolUseMessages_NilArgsBecomeEmptyObject(t *testing.T) {
 	// json.Unmarshal of "null" leaves inputMap nil, which the original
 	// replaced with an empty map so the wire payload is `{}` not `null`.
 	calls := []*genai.FunctionCall{{ID: "c1", Name: "fn", Args: nil}}
-	messages := antToolUseMessages(nil, calls, nil)
+	messages := antToolUseMessages(nil, calls, nil, false)
 
 	got := marshalGolden(t, messages[0])
 	want := `{

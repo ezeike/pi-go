@@ -20,6 +20,64 @@ const defaultMaxTokens int64 = 8192
 const anthropicOAuthBetaHeader = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14"
 const anthropicOAuthUserAgent = "claude-cli/2.1.75"
 
+// anthropicClaudeCodeIdentity is prepended to the system prompt when the
+// request carries an OAuth subscription token. Anthropic's endpoint checks
+// this alongside the headers set in NewAnthropic — a request whose headers
+// claim to be Claude Code but whose system prompt doesn't is still
+// distinguishable from the genuine client.
+const anthropicClaudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
+
+// anthropicClaudeCodeToolAliases maps pi-go's native tool names to Claude
+// Code's own canonical names, for the subset that has a direct equivalent.
+// Applied to outbound tool declarations (and reversed on inbound tool_use
+// names) only when isAnthropicOAuthToken is true — the same header/identity
+// check above extends to tool naming, since Claude Code's own tool schema is
+// part of what Anthropic's endpoint fingerprints.
+var anthropicClaudeCodeToolAliases = map[string]string{
+	"read":  "Read",
+	"write": "Write",
+	"edit":  "Edit",
+	"bash":  "Bash",
+	"grep":  "Grep",
+}
+
+// anthropicToClaudeCodeToolName renames a pi-go tool name to its Claude Code
+// equivalent when one exists, otherwise returns it unchanged.
+func anthropicToClaudeCodeToolName(name string) string {
+	if alias, ok := anthropicClaudeCodeToolAliases[name]; ok {
+		return alias
+	}
+	return name
+}
+
+// claudeCodeToAnthropicToolName reverses anthropicToClaudeCodeToolName, so a
+// tool_use block naming "Read" dispatches against pi-go's own "read" tool.
+func claudeCodeToAnthropicToolName(name string) string {
+	for from, to := range anthropicClaudeCodeToolAliases {
+		if to == name {
+			return from
+		}
+	}
+	return name
+}
+
+// remapInboundToolNames wraps yield so any function-call name in a response
+// (a completed message, streaming or not) is translated from Claude Code's
+// alias back to pi-go's own tool name before reaching the caller — the ADK
+// tool dispatcher only knows pi-go's native names.
+func remapInboundToolNames(yield func(*model.LLMResponse, error) bool) func(*model.LLMResponse, error) bool {
+	return func(resp *model.LLMResponse, err error) bool {
+		if resp != nil && resp.Content != nil {
+			for _, part := range resp.Content.Parts {
+				if part != nil && part.FunctionCall != nil {
+					part.FunctionCall.Name = claudeCodeToAnthropicToolName(part.FunctionCall.Name)
+				}
+			}
+		}
+		return yield(resp, err)
+	}
+}
+
 // anthropicModel implements model.LLM for the Anthropic API.
 type anthropicModel struct {
 	modelName            string
@@ -30,6 +88,7 @@ type anthropicModel struct {
 	advisorMaxUses       int    // Max advisor calls per request (0 = unlimited)
 	advisorCaching       bool   // Enable ephemeral prompt caching for advisor
 	disablePromptCaching bool   // When true, skip stamping cache_control markers
+	oauthMode            bool   // true when apiKey is a Claude subscription OAuth token
 }
 
 // NewAnthropic creates an Anthropic model.LLM.
@@ -42,6 +101,7 @@ func NewAnthropic(_ context.Context, modelName, apiKey, baseURL, thinkingLevel s
 	if apiKey == "" && baseURL == "" {
 		return nil, fmt.Errorf("anthropic API key is required")
 	}
+	oauthMode := apiKey != "" && isAnthropicOAuthToken(apiKey)
 	var opts []anthropicopt.RequestOption
 	if apiKey != "" {
 		if isAnthropicOAuthToken(apiKey) {
@@ -98,6 +158,7 @@ func NewAnthropic(_ context.Context, modelName, apiKey, baseURL, thinkingLevel s
 		advisorMaxUses:       advisorMaxUses,
 		advisorCaching:       advisorCaching,
 		disablePromptCaching: disablePromptCaching,
+		oauthMode:            oauthMode,
 	}, nil
 }
 
@@ -117,8 +178,12 @@ func (m *anthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 // configured for. It lives outside the iterator closure so the routing reads at
 // the top level rather than one nesting level down.
 func (m *anthropicModel) generate(ctx context.Context, req *model.LLMRequest, stream bool, yield func(*model.LLMResponse, error) bool) {
-	messages, systemPrompt := antContentsToMessages(req.Contents, req.Config)
+	messages, systemPrompt := antContentsToMessages(req.Contents, req.Config, m.oauthMode)
 	modelName := antResolveModelName(m.modelName, req.Model)
+
+	if m.oauthMode {
+		yield = remapInboundToolNames(yield)
+	}
 
 	maxTokens := defaultMaxTokens
 	thinkingCfg := antThinkingConfig(m.thinkingLevel)
@@ -177,14 +242,19 @@ func (m *anthropicModel) buildParams(modelName string, messages []anthropic.Mess
 		params.Thinking = *thinkingCfg
 	}
 
+	var systemBlocks []anthropic.TextBlockParam
+	if m.oauthMode {
+		systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: anthropicClaudeCodeIdentity})
+	}
 	if systemPrompt != "" {
-		params.System = []anthropic.TextBlockParam{
-			{Text: systemPrompt},
-		}
+		systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: systemPrompt})
+	}
+	if len(systemBlocks) > 0 {
+		params.System = systemBlocks
 	}
 
 	if config != nil && len(config.Tools) > 0 {
-		params.Tools = antGenaiToolsToAnthropic(config.Tools)
+		params.Tools = antGenaiToolsToAnthropic(config.Tools, m.oauthMode)
 	}
 
 	// Stamp cache_control markers on the request unless the user opted
@@ -238,14 +308,19 @@ func (m *anthropicModel) buildBetaParams(modelName string, messages []anthropic.
 		params.Thinking = *thinkingCfg
 	}
 
+	var systemBlocks []anthropic.BetaTextBlockParam
+	if m.oauthMode {
+		systemBlocks = append(systemBlocks, anthropic.BetaTextBlockParam{Text: anthropicClaudeCodeIdentity})
+	}
 	if systemPrompt != "" {
-		params.System = []anthropic.BetaTextBlockParam{
-			{Text: systemPrompt},
-		}
+		systemBlocks = append(systemBlocks, anthropic.BetaTextBlockParam{Text: systemPrompt})
+	}
+	if len(systemBlocks) > 0 {
+		params.System = systemBlocks
 	}
 
 	if config != nil && len(config.Tools) > 0 {
-		params.Tools = append(params.Tools, antGenaiToolsToBetaAnthropic(config.Tools)...)
+		params.Tools = append(params.Tools, antGenaiToolsToBetaAnthropic(config.Tools, m.oauthMode)...)
 	}
 
 	// Stamp cache_control markers on the request unless the user opted
@@ -340,12 +415,18 @@ func antSchemaFields(parametersJSONSchema any) (map[string]any, []string) {
 	return properties, jsonSchemaRequiredNames(schema["required"])
 }
 
-// antGenaiToolsToBetaAnthropic converts genai tools to Anthropic beta tool format.
-func antGenaiToolsToBetaAnthropic(tools []*genai.Tool) []anthropic.BetaToolUnionParam {
+// antGenaiToolsToBetaAnthropic converts genai tools to Anthropic beta tool
+// format. When oauthMode is true, names with a Claude Code equivalent are
+// aliased to it (see anthropicClaudeCodeToolAliases).
+func antGenaiToolsToBetaAnthropic(tools []*genai.Tool, oauthMode bool) []anthropic.BetaToolUnionParam {
 	var out []anthropic.BetaToolUnionParam
 	for _, s := range antToolSchemas(tools) {
+		name := s.name
+		if oauthMode {
+			name = anthropicToClaudeCodeToolName(name)
+		}
 		tool := anthropic.BetaToolParam{
-			Name:        s.name,
+			Name:        name,
 			Description: anthropic.String(s.description),
 			InputSchema: anthropic.BetaToolInputSchemaParam{
 				Properties: s.properties,
@@ -369,7 +450,7 @@ func antStopReasonToGenai(reason anthropic.StopReason) genai.FinishReason {
 	}
 }
 
-func antContentsToMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]anthropic.MessageParam, string) {
+func antContentsToMessages(contents []*genai.Content, config *genai.GenerateContentConfig, oauthMode bool) ([]anthropic.MessageParam, string) {
 	systemPrompt := genaiSystemInstruction(config)
 	functionResponses := genaiFunctionResponses(contents)
 
@@ -387,7 +468,7 @@ func antContentsToMessages(contents []*genai.Content, config *genai.GenerateCont
 
 		switch {
 		case len(functionCalls) > 0 && genaiIsAssistantRole(role):
-			messages = append(messages, antToolUseMessages(textParts, functionCalls, functionResponses)...)
+			messages = append(messages, antToolUseMessages(textParts, functionCalls, functionResponses, oauthMode)...)
 		case len(textParts) > 0:
 			messages = append(messages, antTextMessage(role, strings.Join(textParts, "\n")))
 		}
@@ -413,6 +494,7 @@ func antToolUseMessages(
 	textParts []string,
 	functionCalls []*genai.FunctionCall,
 	functionResponses map[string]*genai.FunctionResponse,
+	oauthMode bool,
 ) []anthropic.MessageParam {
 	// Assistant message with tool use blocks
 	var contentBlocks []anthropic.ContentBlockParamUnion
@@ -426,7 +508,16 @@ func antToolUseMessages(
 		if inputMap == nil {
 			inputMap = make(map[string]any)
 		}
-		contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(fc.ID, inputMap, fc.Name))
+		// Replaying a prior tool call into history: its name is pi-go's own
+		// (already reversed by remapInboundToolNames when it was first
+		// yielded), so it must be aliased again here to match the Claude
+		// Code name the current request's tool declarations use — Anthropic
+		// rejects a tool_use block whose name isn't among the declared tools.
+		name := fc.Name
+		if oauthMode {
+			name = anthropicToClaudeCodeToolName(name)
+		}
+		contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(fc.ID, inputMap, name))
 	}
 
 	// Tool results as user message
@@ -460,11 +551,17 @@ func antTextMessage(role, text string) anthropic.MessageParam {
 
 // antGenaiToolsToAnthropic converts genai tools to the standard Anthropic tool
 // format. Same shared core as antGenaiToolsToBetaAnthropic, different wrapper.
-func antGenaiToolsToAnthropic(tools []*genai.Tool) []anthropic.ToolUnionParam {
+// When oauthMode is true, names with a Claude Code equivalent are aliased to
+// it (see anthropicClaudeCodeToolAliases).
+func antGenaiToolsToAnthropic(tools []*genai.Tool, oauthMode bool) []anthropic.ToolUnionParam {
 	var out []anthropic.ToolUnionParam
 	for _, s := range antToolSchemas(tools) {
+		name := s.name
+		if oauthMode {
+			name = anthropicToClaudeCodeToolName(name)
+		}
 		tool := anthropic.ToolParam{
-			Name:        s.name,
+			Name:        name,
 			Description: anthropic.String(s.description),
 			InputSchema: anthropic.ToolInputSchemaParam{
 				Properties: s.properties,

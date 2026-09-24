@@ -46,7 +46,7 @@ func TestAntContentsToMessages(t *testing.T) {
 			{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
 		}
 
-		msgs, sysPrompt := antContentsToMessages(contents, config)
+		msgs, sysPrompt := antContentsToMessages(contents, config, false)
 		if sysPrompt != "You are a coding agent." {
 			t.Errorf("system prompt = %q, want %q", sysPrompt, "You are a coding agent.")
 		}
@@ -62,7 +62,7 @@ func TestAntContentsToMessages(t *testing.T) {
 			{Role: "user", Parts: []*genai.Part{{Text: "Tell me more."}}},
 		}
 
-		msgs, _ := antContentsToMessages(contents, nil)
+		msgs, _ := antContentsToMessages(contents, nil, false)
 		if len(msgs) != 3 {
 			t.Fatalf("expected 3 messages, got %d", len(msgs))
 		}
@@ -92,7 +92,7 @@ func TestAntContentsToMessages(t *testing.T) {
 			{Role: "user", Parts: []*genai.Part{fr}},
 		}
 
-		msgs, _ := antContentsToMessages(contents, nil)
+		msgs, _ := antContentsToMessages(contents, nil, false)
 		// user + assistant(tool_use) + user(tool_result)
 		if len(msgs) != 3 {
 			t.Fatalf("expected 3 messages, got %d", len(msgs))
@@ -111,7 +111,7 @@ func TestAntContentsToMessages(t *testing.T) {
 			{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
 		}
 
-		msgs, _ := antContentsToMessages(contents, nil)
+		msgs, _ := antContentsToMessages(contents, nil, false)
 		if len(msgs) != 1 {
 			t.Fatalf("expected 1 message, got %d", len(msgs))
 		}
@@ -121,7 +121,7 @@ func TestAntContentsToMessages(t *testing.T) {
 		contents := []*genai.Content{
 			{Role: "user", Parts: []*genai.Part{nil}},
 		}
-		msgs, _ := antContentsToMessages(contents, nil)
+		msgs, _ := antContentsToMessages(contents, nil, false)
 		if len(msgs) != 1 {
 			t.Fatalf("expected 1 message, got %d", len(msgs))
 		}
@@ -131,7 +131,7 @@ func TestAntContentsToMessages(t *testing.T) {
 		contents := []*genai.Content{
 			{Role: "user", Parts: []*genai.Part{{Text: ""}}},
 		}
-		msgs, _ := antContentsToMessages(contents, nil)
+		msgs, _ := antContentsToMessages(contents, nil, false)
 		if len(msgs) != 1 {
 			t.Fatalf("expected 1 message, got %d", len(msgs))
 		}
@@ -141,7 +141,7 @@ func TestAntContentsToMessages(t *testing.T) {
 		contents := []*genai.Content{
 			{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
 		}
-		msgs, sysPrompt := antContentsToMessages(contents, nil)
+		msgs, sysPrompt := antContentsToMessages(contents, nil, false)
 		if len(msgs) != 1 {
 			t.Fatalf("expected 1 message, got %d", len(msgs))
 		}
@@ -182,7 +182,7 @@ func TestAntGenaiToolsToAnthropic(t *testing.T) {
 			},
 		}
 
-		result := antGenaiToolsToAnthropic(tools)
+		result := antGenaiToolsToAnthropic(tools, false)
 		if len(result) != 2 {
 			t.Fatalf("expected 2 tools, got %d", len(result))
 		}
@@ -200,7 +200,7 @@ func TestAntGenaiToolsToAnthropic(t *testing.T) {
 				},
 			},
 		}
-		result := antGenaiToolsToAnthropic(tools)
+		result := antGenaiToolsToAnthropic(tools, false)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(result))
 		}
@@ -224,7 +224,7 @@ func TestAntGenaiToolsToAnthropic(t *testing.T) {
 				},
 			},
 		}
-		result := antGenaiToolsToAnthropic(tools)
+		result := antGenaiToolsToAnthropic(tools, false)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(result))
 		}
@@ -517,7 +517,7 @@ func TestAntContentsToMessagesAssistantRoleText(t *testing.T) {
 		{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
 		{Role: "assistant", Parts: []*genai.Part{{Text: "Hi there"}}},
 	}
-	msgs, _ := antContentsToMessages(contents, nil)
+	msgs, _ := antContentsToMessages(contents, nil, false)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -536,7 +536,7 @@ func TestAntContentsToMessagesAssistantRoleFunctionCall(t *testing.T) {
 		{Role: "assistant", Parts: []*genai.Part{fc}},
 	}
 
-	msgs, _ := antContentsToMessages(contents, nil)
+	msgs, _ := antContentsToMessages(contents, nil, false)
 	// user + assistant(tool_use) + user(tool_result with default msg)
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(msgs))
@@ -646,7 +646,7 @@ func TestNewAnthropicWithOAuthTokenUsesBearerHeaders(t *testing.T) {
 // produced (e.g. only nil contents) a default user "Hello" message is injected.
 func TestAntContentsToMessagesEmptyFallback(t *testing.T) {
 	// All nil contents → no messages produced → fallback to default "Hello" message.
-	msgs, sysPrompt := antContentsToMessages([]*genai.Content{nil, nil}, nil)
+	msgs, sysPrompt := antContentsToMessages([]*genai.Content{nil, nil}, nil, false)
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 fallback message, got %d", len(msgs))
 	}
@@ -674,7 +674,7 @@ func TestAntContentsToMessagesMultipleSystemParts(t *testing.T) {
 		{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
 	}
 
-	_, sysPrompt := antContentsToMessages(contents, config)
+	_, sysPrompt := antContentsToMessages(contents, config, false)
 	if sysPrompt != "Part one.\nPart two." {
 		t.Errorf("system prompt = %q, want %q", sysPrompt, "Part one.\nPart two.")
 	}
@@ -701,7 +701,7 @@ func TestAntContentsToMessagesAssistantFunctionCallWithText(t *testing.T) {
 		{Role: "user", Parts: []*genai.Part{fr}},
 	}
 
-	msgs, _ := antContentsToMessages(contents, nil)
+	msgs, _ := antContentsToMessages(contents, nil, false)
 	// user + assistant(text+tool_use) + user(tool_result)
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(msgs))
@@ -733,7 +733,7 @@ func TestAntContentsToMessagesFunctionResponseContentPaths(t *testing.T) {
 		{Role: "user", Parts: []*genai.Part{fr}},
 	}
 
-	msgs, _ := antContentsToMessages(contents, nil)
+	msgs, _ := antContentsToMessages(contents, nil, false)
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d: %v", len(msgs), msgs)
 	}
@@ -1364,5 +1364,127 @@ func TestAnthropicNonStreamingPropagatesCacheRead(t *testing.T) {
 	}
 	if final.UsageMetadata.CachedContentTokenCount != 75 {
 		t.Errorf("CachedContentTokenCount = %d, want 75 (cache_read_input_tokens)", final.UsageMetadata.CachedContentTokenCount)
+	}
+}
+
+func TestIsAnthropicOAuthToken(t *testing.T) {
+	if !isAnthropicOAuthToken("sk-ant-oat01-abc123") {
+		t.Error("expected sk-ant-oat01-... to be recognized as an OAuth token")
+	}
+	if isAnthropicOAuthToken("sk-ant-api03-abc123") {
+		t.Error("expected a plain API key not to be recognized as an OAuth token")
+	}
+}
+
+func TestAnthropicClaudeCodeToolNameRoundTrip(t *testing.T) {
+	for pigo, claudeCode := range anthropicClaudeCodeToolAliases {
+		if got := anthropicToClaudeCodeToolName(pigo); got != claudeCode {
+			t.Errorf("anthropicToClaudeCodeToolName(%q) = %q, want %q", pigo, got, claudeCode)
+		}
+		if got := claudeCodeToAnthropicToolName(claudeCode); got != pigo {
+			t.Errorf("claudeCodeToAnthropicToolName(%q) = %q, want %q", claudeCode, got, pigo)
+		}
+	}
+	// A name with no alias passes through unchanged in both directions.
+	if got := anthropicToClaudeCodeToolName("tree"); got != "tree" {
+		t.Errorf("anthropicToClaudeCodeToolName(%q) = %q, want unchanged", "tree", got)
+	}
+	if got := claudeCodeToAnthropicToolName("AskUserQuestion"); got != "AskUserQuestion" {
+		t.Errorf("claudeCodeToAnthropicToolName(%q) = %q, want unchanged", "AskUserQuestion", got)
+	}
+}
+
+func TestBuildParamsOAuthMode(t *testing.T) {
+	t.Run("prepends Claude Code identity ahead of the real system prompt", func(t *testing.T) {
+		m := &anthropicModel{modelName: "claude-sonnet-5", oauthMode: true}
+		params := m.buildParams("claude-sonnet-5", nil, "You are a coding agent.", 8192, nil, nil)
+		if len(params.System) != 2 {
+			t.Fatalf("System = %d blocks, want 2", len(params.System))
+		}
+		if params.System[0].Text != anthropicClaudeCodeIdentity {
+			t.Errorf("System[0] = %q, want %q", params.System[0].Text, anthropicClaudeCodeIdentity)
+		}
+		if params.System[1].Text != "You are a coding agent." {
+			t.Errorf("System[1] = %q, want the real system prompt", params.System[1].Text)
+		}
+	})
+
+	t.Run("still stamps identity when there is no system prompt", func(t *testing.T) {
+		m := &anthropicModel{modelName: "claude-sonnet-5", oauthMode: true}
+		params := m.buildParams("claude-sonnet-5", nil, "", 8192, nil, nil)
+		if len(params.System) != 1 || params.System[0].Text != anthropicClaudeCodeIdentity {
+			t.Fatalf("System = %+v, want just the identity block", params.System)
+		}
+	})
+
+	t.Run("non-OAuth mode is unchanged", func(t *testing.T) {
+		m := &anthropicModel{modelName: "claude-sonnet-5"}
+		params := m.buildParams("claude-sonnet-5", nil, "You are a coding agent.", 8192, nil, nil)
+		if len(params.System) != 1 || params.System[0].Text != "You are a coding agent." {
+			t.Fatalf("System = %+v, want just the real system prompt", params.System)
+		}
+	})
+
+	t.Run("aliases declared tool names to Claude Code's", func(t *testing.T) {
+		m := &anthropicModel{modelName: "claude-sonnet-5", oauthMode: true}
+		config := &genai.GenerateContentConfig{
+			Tools: []*genai.Tool{
+				{FunctionDeclarations: []*genai.FunctionDeclaration{
+					{Name: "read", Description: "read a file"},
+					{Name: "tree", Description: "show a tree"},
+				}},
+			},
+		}
+		params := m.buildParams("claude-sonnet-5", nil, "", 8192, nil, config)
+		if len(params.Tools) != 2 {
+			t.Fatalf("Tools = %d, want 2", len(params.Tools))
+		}
+		names := map[string]bool{}
+		for _, tl := range params.Tools {
+			names[tl.OfTool.Name] = true
+		}
+		if !names["Read"] {
+			t.Error("expected \"read\" to be aliased to \"Read\"")
+		}
+		if !names["tree"] {
+			t.Error("expected \"tree\" (no alias) to pass through unchanged")
+		}
+	})
+}
+
+func TestAntToolUseMessagesOAuthMode(t *testing.T) {
+	calls := []*genai.FunctionCall{{ID: "call_1", Name: "read", Args: map[string]any{"path": "x"}}}
+	responses := map[string]*genai.FunctionResponse{}
+
+	msgs := antToolUseMessages(nil, calls, responses, true)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	block := msgs[0].Content[0].OfToolUse
+	if block == nil || block.Name != "Read" {
+		t.Errorf("tool_use name = %+v, want \"Read\"", block)
+	}
+}
+
+func TestRemapInboundToolNames(t *testing.T) {
+	var got *model.LLMResponse
+	yield := remapInboundToolNames(func(resp *model.LLMResponse, err error) bool {
+		got = resp
+		return true
+	})
+
+	yield(&model.LLMResponse{
+		Content: &genai.Content{
+			Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{Name: "Read", Args: map[string]any{}}},
+			},
+		},
+	}, nil)
+
+	if got == nil || got.Content == nil || len(got.Content.Parts) != 1 {
+		t.Fatal("expected a response with one part to pass through")
+	}
+	if name := got.Content.Parts[0].FunctionCall.Name; name != "read" {
+		t.Errorf("FunctionCall.Name = %q, want \"read\" (aliased back from Claude Code's \"Read\")", name)
 	}
 }
