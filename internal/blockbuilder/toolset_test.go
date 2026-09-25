@@ -6,22 +6,22 @@ import (
 	"github.com/machina/block-builder/sdk/sdktest"
 )
 
-// Task 8 (impl-specs/toolset.md): BlockBuilderToolset assembly. Tools() must construct all 11
-// tools (7 plain-unary — this component's tools_spec.go/tools_run.go — plus the 4
+// Task 8 (impl-specs/toolset.md): BlockBuilderToolset assembly. Tools() must construct all 13
+// tools (7 plain-unary — this component's tools_spec.go/tools_run.go — plus the 6
 // long-running/buffered-poll tools the streaming component builds), and propose_spec_change /
-// watch_run specifically must report IsLongRunning() == true while every other tool reports
-// false (tool.Tool exposes IsLongRunning() directly — confirmed against the vendored
+// watch_run / send_message specifically must report IsLongRunning() == true while every other
+// tool reports false (tool.Tool exposes IsLongRunning() directly — confirmed against the vendored
 // google.golang.org/adk/v2@v2.4.0/tool/tool.go, see tool_test.go's note on the same point).
 
 func TestBlockBuilderToolset_Name(t *testing.T) {
-	ts := NewBlockBuilderToolset(&sdktest.FakeSpecClient{}, &sdktest.FakeRunClient{})
+	ts := NewBlockBuilderToolset(&sdktest.FakeSpecClient{}, &sdktest.FakeRunClient{}, &sdktest.FakeChatClient{})
 	if got := ts.Name(); got != "block-builder" {
 		t.Fatalf("Name() = %q, want %q", got, "block-builder")
 	}
 }
 
-func TestBlockBuilderToolset_Tools_ExactSetOfElevenNames(t *testing.T) {
-	ts := NewBlockBuilderToolset(&sdktest.FakeSpecClient{}, &sdktest.FakeRunClient{})
+func TestBlockBuilderToolset_Tools_ExactSetOfThirteenNames(t *testing.T) {
+	ts := NewBlockBuilderToolset(&sdktest.FakeSpecClient{}, &sdktest.FakeRunClient{}, &sdktest.FakeChatClient{})
 	tools, err := ts.Tools(nil)
 	if err != nil {
 		t.Fatalf("Tools: %v", err)
@@ -39,6 +39,8 @@ func TestBlockBuilderToolset_Tools_ExactSetOfElevenNames(t *testing.T) {
 		"get_run_progress":    true,
 		"get_run":             true,
 		"get_manifest":        true,
+		"send_message":        true,
+		"get_chat_progress":   true,
 	}
 	if len(tools) != len(want) {
 		t.Fatalf("len(tools) = %d, want %d", len(tools), len(want))
@@ -60,7 +62,7 @@ func TestBlockBuilderToolset_Tools_ExactSetOfElevenNames(t *testing.T) {
 }
 
 func TestBlockBuilderToolset_Tools_LongRunningFlags(t *testing.T) {
-	ts := NewBlockBuilderToolset(&sdktest.FakeSpecClient{}, &sdktest.FakeRunClient{})
+	ts := NewBlockBuilderToolset(&sdktest.FakeSpecClient{}, &sdktest.FakeRunClient{}, &sdktest.FakeChatClient{})
 	tools, err := ts.Tools(nil)
 	if err != nil {
 		t.Fatalf("Tools: %v", err)
@@ -69,6 +71,7 @@ func TestBlockBuilderToolset_Tools_LongRunningFlags(t *testing.T) {
 	wantLongRunning := map[string]bool{
 		"propose_spec_change": true,
 		"watch_run":           true,
+		"send_message":        true,
 	}
 	for _, tl := range tools {
 		if got, want := tl.IsLongRunning(), wantLongRunning[tl.Name()]; got != want {

@@ -154,8 +154,8 @@ func buildToolsets(cfg config.Config) []adktool.Toolset {
 	if llms := cfg.LLMSSources(); llms != nil {
 		toolsets = append(toolsets, tools.NewLLMSCachedToolset(llms))
 	}
-	if spec, run, err := blockbuilder.NewClient(); err == nil {
-		toolsets = append(toolsets, blockbuilder.NewBlockBuilderToolset(spec, run))
+	if spec, run, chat, err := blockbuilder.NewClient(); err == nil {
+		toolsets = append(toolsets, blockbuilder.NewBlockBuilderToolset(spec, run, chat))
 	} else if !errors.Is(err, blockbuilder.ErrNotConfigured) {
 		// D8: unconfigured is silent (tool absent); any other error (e.g. a
 		// present-but-invalid BLOCK_BUILDER_URL) gets exactly one slog.Warn at

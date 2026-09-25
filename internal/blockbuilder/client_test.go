@@ -13,13 +13,13 @@ func TestNewClient_NotConfigured(t *testing.T) {
 	t.Setenv("BLOCK_BUILDER_URL", "")
 	t.Setenv("BLOCK_BUILDER_API_KEY", "")
 
-	spec, run, err := NewClient()
+	spec, run, chat, err := NewClient()
 
 	if !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("err = %v, want ErrNotConfigured", err)
 	}
-	if spec != nil || run != nil {
-		t.Fatalf("expected nil clients when not configured, got spec=%v run=%v", spec, run)
+	if spec != nil || run != nil || chat != nil {
+		t.Fatalf("expected nil clients when not configured, got spec=%v run=%v chat=%v", spec, run, chat)
 	}
 }
 
@@ -31,7 +31,7 @@ func TestNewClient_InvalidURL(t *testing.T) {
 	t.Setenv("BLOCK_BUILDER_URL", "not-a-url")
 	t.Setenv("BLOCK_BUILDER_API_KEY", "")
 
-	_, _, err := NewClient()
+	_, _, _, err := NewClient()
 
 	if err == nil {
 		t.Fatal("expected an error for an invalid BLOCK_BUILDER_URL, got nil")
@@ -50,7 +50,7 @@ func TestNewClient_ConfiguredReturnsNonNilClients(t *testing.T) {
 	t.Setenv("BLOCK_BUILDER_URL", "https://bb.example.com")
 	t.Setenv("BLOCK_BUILDER_API_KEY", "secret")
 
-	spec, run, err := NewClient()
+	spec, run, chat, err := NewClient()
 
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
@@ -60,5 +60,8 @@ func TestNewClient_ConfiguredReturnsNonNilClients(t *testing.T) {
 	}
 	if run == nil {
 		t.Fatal("expected non-nil RunClient")
+	}
+	if chat == nil {
+		t.Fatal("expected non-nil ChatClient")
 	}
 }

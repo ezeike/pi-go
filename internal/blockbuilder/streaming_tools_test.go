@@ -441,3 +441,236 @@ func TestGetRunProgressTool_StreamError_SurfacesInBand(t *testing.T) {
 		t.Fatalf("Done=%v Error=%q, want Done=true and non-empty Error", res.Done, res.Error)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// send_message + get_chat_progress tools — same long-running/buffered-poll
+// shape as propose_spec_change/get_spec_progress, exercised the same way.
+// ---------------------------------------------------------------------------
+
+func TestSendMessageTool_IsLongRunning(t *testing.T) {
+	chat := &sdktest.FakeChatClient{}
+	reg := newProgressRegistry(context.Background())
+	tl, err := NewSendMessageTool(chat, reg)
+	if err != nil {
+		t.Fatalf("NewSendMessageTool: %v", err)
+	}
+	if !tl.IsLongRunning() {
+		t.Fatal("IsLongRunning() = false, want true for send_message")
+	}
+}
+
+func TestGetChatProgressTool_IsNotLongRunning(t *testing.T) {
+	reg := newProgressRegistry(context.Background())
+	tl, err := NewGetChatProgressTool(reg)
+	if err != nil {
+		t.Fatalf("NewGetChatProgressTool: %v", err)
+	}
+	if tl.IsLongRunning() {
+		t.Fatal("IsLongRunning() = true, want false for get_chat_progress")
+	}
+}
+
+func TestSendMessageTool_ContinuingConversation_ReturnsGivenID(t *testing.T) {
+	fs := &sdktest.FakeStream[pluginv1.ChatEvent]{
+		Msgs: []*pluginv1.ChatEvent{
+			{Event: &pluginv1.ChatEvent_Delta{Delta: &pluginv1.TextDelta{Text: "hi"}}},
+			{Event: &pluginv1.ChatEvent_Done{Done: &pluginv1.Done{ConversationId: "conv-existing"}}},
+		},
+	}
+	chat := &sdktest.FakeChatClient{
+		SendMessageFunc: func(ctx context.Context, req *pluginv1.SendMessageRequest) (sdk.Stream[pluginv1.ChatEvent], error) {
+			if req.ConversationId != "conv-existing" {
+				t.Fatalf("req.ConversationId = %q, want %q", req.ConversationId, "conv-existing")
+			}
+			return fs, nil
+		},
+	}
+	reg := newProgressRegistry(context.Background())
+	tl, err := NewSendMessageTool(chat, reg)
+	if err != nil {
+		t.Fatalf("NewSendMessageTool: %v", err)
+	}
+
+	res, err := runTool[SendMessageArgs, SendMessageResult](t, tl, SendMessageArgs{
+		PluginID: "p1", ConversationID: "conv-existing", Message: "hello",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ConversationID != "conv-existing" {
+		t.Fatalf("ConversationID = %q, want %q", res.ConversationID, "conv-existing")
+	}
+
+	waitBufDone(t, reg, "conv-existing")
+	if !fs.Closed() {
+		t.Fatal("stream not Closed() after drain")
+	}
+}
+
+func TestSendMessageTool_NewConversation_GeneratesKey(t *testing.T) {
+	fs := &sdktest.FakeStream[pluginv1.ChatEvent]{
+		Msgs: []*pluginv1.ChatEvent{
+			{Event: &pluginv1.ChatEvent_Done{Done: &pluginv1.Done{ConversationId: "conv-server-assigned"}}},
+		},
+	}
+	chat := &sdktest.FakeChatClient{
+		SendMessageFunc: func(ctx context.Context, req *pluginv1.SendMessageRequest) (sdk.Stream[pluginv1.ChatEvent], error) {
+			if req.ConversationId != "" {
+				t.Fatalf("req.ConversationId = %q, want empty (new conversation)", req.ConversationId)
+			}
+			return fs, nil
+		},
+	}
+	reg := newProgressRegistry(context.Background())
+	tl, err := NewSendMessageTool(chat, reg)
+	if err != nil {
+		t.Fatalf("NewSendMessageTool: %v", err)
+	}
+
+	res, err := runTool[SendMessageArgs, SendMessageResult](t, tl, SendMessageArgs{
+		PluginID: "p1", Message: "start fresh",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ConversationID == "" {
+		t.Fatal("ConversationID is empty, want a generated placeholder key")
+	}
+	waitBufDone(t, reg, res.ConversationID)
+}
+
+func TestSendMessageTool_StartError(t *testing.T) {
+	wantErr := errors.New("connect: unavailable")
+	chat := &sdktest.FakeChatClient{
+		SendMessageFunc: func(ctx context.Context, req *pluginv1.SendMessageRequest) (sdk.Stream[pluginv1.ChatEvent], error) {
+			return nil, wantErr
+		},
+	}
+	reg := newProgressRegistry(context.Background())
+	tl, err := NewSendMessageTool(chat, reg)
+	if err != nil {
+		t.Fatalf("NewSendMessageTool: %v", err)
+	}
+
+	_, err = runTool[SendMessageArgs, SendMessageResult](t, tl, SendMessageArgs{PluginID: "p1", Message: "x"})
+	if err == nil {
+		t.Fatal("Run: want error, got nil")
+	}
+}
+
+// TestSendMessageTool_ExistingKey_DoesNotReopenStream: same regression coverage as
+// TestProposeSpecChangeTool_ExistingKey_DoesNotReopenStream, for send_message.
+func TestSendMessageTool_ExistingKey_DoesNotReopenStream(t *testing.T) {
+	calls := 0
+	fs := &sdktest.FakeStream[pluginv1.ChatEvent]{
+		Msgs: []*pluginv1.ChatEvent{
+			{Event: &pluginv1.ChatEvent_Done{Done: &pluginv1.Done{ConversationId: "conv-existing"}}},
+		},
+	}
+	chat := &sdktest.FakeChatClient{
+		SendMessageFunc: func(ctx context.Context, req *pluginv1.SendMessageRequest) (sdk.Stream[pluginv1.ChatEvent], error) {
+			calls++
+			return fs, nil
+		},
+	}
+	reg := newProgressRegistry(context.Background())
+	tl, err := NewSendMessageTool(chat, reg)
+	if err != nil {
+		t.Fatalf("NewSendMessageTool: %v", err)
+	}
+
+	args := SendMessageArgs{PluginID: "p1", ConversationID: "conv-existing", Message: "first turn"}
+	if _, err := runTool[SendMessageArgs, SendMessageResult](t, tl, args); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	waitBufDone(t, reg, "conv-existing")
+
+	res, err := runTool[SendMessageArgs, SendMessageResult](t, tl, args)
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if res.ConversationID != "conv-existing" {
+		t.Fatalf("ConversationID = %q, want %q", res.ConversationID, "conv-existing")
+	}
+	if calls != 1 {
+		t.Fatalf("SendMessage called %d times, want 1 — a re-invocation for an already-registered key must not open a second stream", calls)
+	}
+}
+
+func TestGetChatProgressTool_IncrementalThenDone(t *testing.T) {
+	fs := &sdktest.FakeStream[pluginv1.ChatEvent]{
+		Msgs: []*pluginv1.ChatEvent{
+			{Event: &pluginv1.ChatEvent_Delta{Delta: &pluginv1.TextDelta{Text: "hi"}}},
+			{Event: &pluginv1.ChatEvent_Done{Done: &pluginv1.Done{ConversationId: "conv-1"}}},
+		},
+	}
+	chat := &sdktest.FakeChatClient{
+		SendMessageFunc: func(ctx context.Context, req *pluginv1.SendMessageRequest) (sdk.Stream[pluginv1.ChatEvent], error) {
+			return fs, nil
+		},
+	}
+	reg := newProgressRegistry(context.Background())
+	sendT, _ := NewSendMessageTool(chat, reg)
+	progressT, _ := NewGetChatProgressTool(reg)
+
+	if _, err := runTool[SendMessageArgs, SendMessageResult](t, sendT, SendMessageArgs{
+		PluginID: "p1", ConversationID: "conv-1", Message: "x",
+	}); err != nil {
+		t.Fatalf("send Run: %v", err)
+	}
+	waitBufDone(t, reg, "conv-1")
+
+	res, err := runTool[ChatProgressArgs, ProgressPollResult](t, progressT, ChatProgressArgs{ConversationID: "conv-1"})
+	if err != nil {
+		t.Fatalf("progress Run: %v", err)
+	}
+	if len(res.Events) != 2 {
+		t.Fatalf("len(Events) = %d, want 2", len(res.Events))
+	}
+	if !res.Done || res.Error != "" {
+		t.Fatalf("Done=%v Error=%q, want Done=true Error=\"\"", res.Done, res.Error)
+	}
+	if res.NextOffset != 2 {
+		t.Fatalf("NextOffset = %d, want 2", res.NextOffset)
+	}
+}
+
+func TestGetChatProgressTool_StreamError_SurfacesInBand(t *testing.T) {
+	fs := &sdktest.FakeStream[pluginv1.ChatEvent]{FailWith: errors.New("upstream boom")}
+	chat := &sdktest.FakeChatClient{
+		SendMessageFunc: func(ctx context.Context, req *pluginv1.SendMessageRequest) (sdk.Stream[pluginv1.ChatEvent], error) {
+			return fs, nil
+		},
+	}
+	reg := newProgressRegistry(context.Background())
+	sendT, _ := NewSendMessageTool(chat, reg)
+	progressT, _ := NewGetChatProgressTool(reg)
+
+	if _, err := runTool[SendMessageArgs, SendMessageResult](t, sendT, SendMessageArgs{
+		PluginID: "p1", ConversationID: "conv-err", Message: "x",
+	}); err != nil {
+		t.Fatalf("send Run: %v", err)
+	}
+	waitBufDone(t, reg, "conv-err")
+
+	res, err := runTool[ChatProgressArgs, ProgressPollResult](t, progressT, ChatProgressArgs{ConversationID: "conv-err"})
+	if err != nil {
+		t.Fatalf("progress Run: %v (want nil error — stream errors surface in-band, not as a Go error)", err)
+	}
+	if !res.Done || res.Error == "" {
+		t.Fatalf("Done=%v Error=%q, want Done=true and a non-empty Error", res.Done, res.Error)
+	}
+}
+
+func TestGetChatProgressTool_UnknownKey(t *testing.T) {
+	reg := newProgressRegistry(context.Background())
+	progressT, _ := NewGetChatProgressTool(reg)
+
+	res, err := runTool[ChatProgressArgs, ProgressPollResult](t, progressT, ChatProgressArgs{ConversationID: "never-started"})
+	if err != nil {
+		t.Fatalf("Run: %v, want nil error", err)
+	}
+	if !res.Done || res.Error == "" {
+		t.Fatalf("Done=%v Error=%q, want Done=true and a non-empty explanatory Error", res.Done, res.Error)
+	}
+}

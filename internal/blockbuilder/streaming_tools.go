@@ -18,11 +18,12 @@ type ProposeSpecChangeArgs struct {
 	SpecProposalsEnabled bool   `json:"spec_proposals_enabled" jsonschema:"true to allow the model to propose spec YAML this turn; false keeps the turn to free-form discussion"`
 }
 
-// ProposeSpecChangeResult.ConversationID is the caller-supplied value if ConversationID was
-// non-empty on the request (continuing an existing conversation); otherwise a locally-generated
-// placeholder key used to poll get_spec_progress. The real server-assigned conversation_id for a
-// brand-new conversation appears inside a later buffered event's own payload instead (see
-// streaming.md Task 4 decision 1 — the Partial event carries no conversation_id at all).
+// ProposeSpecChangeResult is propose_spec_change's return value. ConversationID is the
+// caller-supplied value if ConversationID was non-empty on the request (continuing an existing
+// conversation); otherwise a locally-generated placeholder key used to poll get_spec_progress. The
+// real server-assigned conversation_id for a brand-new conversation appears inside a later
+// buffered event's own payload instead (see streaming.md Task 4 decision 1 — the Partial event
+// carries no conversation_id at all).
 type ProposeSpecChangeResult struct {
 	ConversationID string `json:"conversation_id" jsonschema:"a handle for polling get_spec_progress with this turn. For a NEW conversation (no conversation_id was given) this is a locally generated polling handle, not the server-assigned conversation id — the real one appears inside a later buffered event's own payload; do not assume this value round-trips through accept_spec or another service call, only through get_spec_progress."`
 }
@@ -32,13 +33,15 @@ type ProgressPollArgs struct {
 	Offset         int64  `json:"offset,omitempty" jsonschema:"absolute index to read from; 0 or omitted reads from the start of the retained buffer"`
 }
 
-// Events is typed []any, not []json.RawMessage: functiontool's automatic OutputSchema
-// inference (google.golang.org/jsonschema-go, no InputSchema/OutputSchema override in
-// newTool/newLongRunningTool) reflects json.RawMessage as a plain byte slice and infers an
-// "array of int, or null" item schema, which then fails validation against the actual decoded
-// JSON object each entry marshals to. []any infers an unconstrained item schema instead, which
-// is what "one already-decoded JSON value of any shape" actually needs — confirmed by running
-// the stage-9 tests against the live vendored adk/jsonschema-go versions.
+// ProgressPollResult is the shared return value of every poll companion tool (get_spec_progress,
+// get_run_progress, get_chat_progress). Its Events field is typed []any, not []json.RawMessage:
+// functiontool's automatic OutputSchema inference (google.golang.org/jsonschema-go, no
+// InputSchema/OutputSchema override in newTool/newLongRunningTool) reflects json.RawMessage as a
+// plain byte slice and infers an "array of int, or null" item schema, which then fails validation
+// against the actual decoded JSON object each entry marshals to. []any infers an unconstrained
+// item schema instead, which is what "one already-decoded JSON value of any shape" actually
+// needs — confirmed by running the stage-9 tests against the live vendored adk/jsonschema-go
+// versions.
 type ProgressPollResult struct {
 	Events     []any  `json:"events" jsonschema:"buffered event messages (protojson, proto field names) since offset, in order"`
 	NextOffset int64  `json:"next_offset" jsonschema:"pass as offset on the next poll"`
@@ -161,6 +164,83 @@ func NewGetRunProgressTool(reg *progressRegistry) (tool.Tool, error) {
 	return newTool(
 		"get_run_progress",
 		"Read buffered watch_run events for a run_id since a given offset. Call repeatedly (passing the previous next_offset) until done is true.",
+		handler,
+	)
+}
+
+type SendMessageArgs struct {
+	PluginID             string `json:"plugin_id" jsonschema:"the plugin this chat is scoped to"`
+	ConversationID       string `json:"conversation_id,omitempty" jsonschema:"existing conversation to continue; omit or empty to start a new one. Interchangeable with a conversation_id from propose_spec_change/get_spec_progress — both RPCs write through the same conversation storage, so a conversation started by either is valid input to the other."`
+	Message              string `json:"message" jsonschema:"user's natural-language message"`
+	SpecProposalsEnabled bool   `json:"spec_proposals_enabled" jsonschema:"the toggle state for THIS turn only, sent fresh every call, never persisted server-side: false (default) keeps the turn in general-purpose discovery (tool-calling over list_primitives/get_spec/validate_spec); true runs this turn through the same spec-drafting generation flow propose_spec_change uses instead of the discovery loop."`
+}
+
+// SendMessageResult is send_message's return value. ConversationID is the caller-supplied value if
+// ConversationID was non-empty on the request (continuing an existing conversation); otherwise a
+// locally-generated placeholder key used to poll get_chat_progress — mirrors
+// ProposeSpecChangeResult's identical convention (see its doc comment above) for the identical
+// reason: SendMessage's ChatEvent stream carries no conversation_id of its own until the terminal
+// Done event.
+type SendMessageResult struct {
+	ConversationID string `json:"conversation_id" jsonschema:"a handle for polling get_chat_progress with this turn. For a NEW conversation (no conversation_id was given) this is a locally generated polling handle, not the server-assigned conversation id — the real one appears in the terminal 'done' event's conversation_id field; do not assume this value round-trips through another service call, only through get_chat_progress."`
+}
+
+type ChatProgressArgs struct {
+	ConversationID string `json:"conversation_id" jsonschema:"the conversation_id returned by send_message"`
+	Offset         int64  `json:"offset,omitempty" jsonschema:"absolute index to read from; 0 or omitted reads from the start of the retained buffer"`
+}
+
+// NewSendMessageTool starts (or continues) a PluginChatService.SendMessage conversation. Same
+// long-running/buffered-poll shape as NewProposeSpecChangeTool: the RPC stream is opened with a
+// context detached from this call's own (context.WithoutCancel) since it must keep draining into
+// the registry after Run returns.
+func NewSendMessageTool(chat sdk.ChatClient, reg *progressRegistry) (tool.Tool, error) {
+	handler := func(ctx agent.Context, args SendMessageArgs) (SendMessageResult, error) {
+		key := args.ConversationID
+		if key == "" {
+			key = uuid.NewString()
+		}
+		buf, started := reg.reserve(key)
+		if !started {
+			// Already draining (or drained) for this conversation_id — see the matching comment
+			// in NewProposeSpecChangeTool for why opening a second stream here would leak it.
+			return SendMessageResult{ConversationID: key}, nil
+		}
+		stream, err := chat.SendMessage(context.WithoutCancel(ctx), &pluginv1.SendMessageRequest{
+			PluginId:             args.PluginID,
+			ConversationId:       args.ConversationID,
+			Message:              args.Message,
+			SpecProposalsEnabled: args.SpecProposalsEnabled,
+		})
+		if err != nil {
+			buf.finish(fmt.Errorf("send_message: %w", err))
+			return SendMessageResult{}, fmt.Errorf("send_message: %w", err)
+		}
+		go drainStream[pluginv1.ChatEvent](stream, buf)
+		return SendMessageResult{ConversationID: key}, nil
+	}
+	return newLongRunningTool(
+		"send_message",
+		"Send one natural-language message to a plugin-scoped chat assistant and start streaming back the reply. Returns immediately with a conversation_id; poll get_chat_progress with it to observe the reply as it streams in (incremental text, plus any structured payload such as a spec proposal or clarifying options), ending in a terminal done or error event.",
+		handler,
+	)
+}
+
+// NewGetChatProgressTool reads back buffered send_message events for a conversation_id.
+func NewGetChatProgressTool(reg *progressRegistry) (tool.Tool, error) {
+	handler := func(_ agent.Context, args ChatProgressArgs) (ProgressPollResult, error) {
+		buf, ok := reg.get(args.ConversationID)
+		if !ok {
+			return ProgressPollResult{
+				Done:  true,
+				Error: fmt.Sprintf("no such conversation_id %q (never started via send_message, or its buffer was evicted)", args.ConversationID),
+			}, nil
+		}
+		return pollResult(buf, args.Offset), nil
+	}
+	return newTool(
+		"get_chat_progress",
+		"Read buffered send_message events for a conversation_id since a given offset. Call repeatedly (passing the previous next_offset) until done is true.",
 		handler,
 	)
 }
