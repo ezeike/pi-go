@@ -280,7 +280,19 @@ func deferredInit(
 		return
 	}
 
-	mcpToolsets := ps.mcpToolsets
+	// A2A agents and block-builder are cheap to build (no network at
+	// construction time — see blockbuilder.NewClient's and tools.NewA2AToolset's
+	// own doc comments), so — like llms.txt sources just below — they attach
+	// synchronously here rather than through the deferred loader that handles
+	// MCP servers. Without this, buildToolsets' non-MCP toolsets existed in
+	// one-shot/piagent modes but never in the interactive TUI, which only ever
+	// received ps.mcpToolsets from agent.New's Toolsets field.
+	// A fresh slice, not append(ps.mcpToolsets, ...): ps.mcpToolsets is read
+	// again below (MCPToolsets: ps.mcpToolsets) and appending in place risks
+	// mutating its backing array if it has spare capacity.
+	mcpToolsets := make([]adktool.Toolset, 0, len(ps.mcpToolsets)+2)
+	mcpToolsets = append(mcpToolsets, ps.mcpToolsets...)
+	mcpToolsets = append(mcpToolsets, buildNonMCPToolsets(cfg)...)
 	// llms.txt documentation sources are cheap to build (no network), so they
 	// attach synchronously here rather than through the deferred loader that
 	// handles MCP servers. Without this the fetch_docs tool exists in one-shot

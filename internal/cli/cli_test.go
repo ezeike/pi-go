@@ -1404,3 +1404,59 @@ func TestBuildToolsets_BlockBuilderPresentWithURL(t *testing.T) {
 		t.Fatal("block-builder toolset absent with BLOCK_BUILDER_URL set")
 	}
 }
+
+// TestBuildNonMCPToolsets_* pin buildNonMCPToolsets directly — the function
+// deferredInit (internal/cli/interactive.go) must also call so the interactive
+// TUI's agent gets the same A2A/block-builder toolsets as the non-interactive
+// runtime. Before this function existed, the TUI's agent.New call only ever
+// received ps.mcpToolsets, so a configured block-builder (or A2A) toolset was
+// silently absent in interactive mode no matter how BLOCK_BUILDER_URL or
+// cfg.A2A were set — this is the regression these tests, and buildNonMCPToolsets
+// itself, exist to prevent recurring.
+func TestBuildNonMCPToolsets_BlockBuilderAbsentWithoutURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BLOCK_BUILDER_URL", "")
+	t.Setenv("BLOCK_BUILDER_API_KEY", "")
+
+	toolsets := buildNonMCPToolsets(config.Config{})
+	for _, ts := range toolsets {
+		if ts.Name() == "block-builder" {
+			t.Fatal("block-builder toolset present with no BLOCK_BUILDER_URL configured")
+		}
+	}
+}
+
+func TestBuildNonMCPToolsets_BlockBuilderPresentWithURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BLOCK_BUILDER_URL", "http://localhost:8080")
+	t.Setenv("BLOCK_BUILDER_API_KEY", "test-key")
+
+	toolsets := buildNonMCPToolsets(config.Config{})
+	found := false
+	for _, ts := range toolsets {
+		if ts.Name() == "block-builder" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("block-builder toolset absent with BLOCK_BUILDER_URL set")
+	}
+}
+
+func TestBuildNonMCPToolsets_A2APresentWithAgents(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BLOCK_BUILDER_URL", "")
+	t.Setenv("BLOCK_BUILDER_API_KEY", "")
+
+	cfg := config.Config{A2A: &config.A2AConfig{Agents: []config.A2AAgentConfig{{Name: "peer", URL: "http://localhost:9999"}}}}
+	toolsets := buildNonMCPToolsets(cfg)
+	found := false
+	for _, ts := range toolsets {
+		if ts.Name() == "a2a" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a2a toolset absent with A2A agents configured")
+	}
+}

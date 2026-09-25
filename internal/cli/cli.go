@@ -1499,19 +1499,35 @@ func memoryObservationCallback(worker *memory.Worker, cfg config.Config, project
 	}
 }
 
-// buildToolsets assembles the external toolsets — MCP servers and A2A agents —
-// configured for this run.
+// buildToolsets assembles the external toolsets — MCP servers, A2A agents,
+// LLMS-txt sources, and block-builder — configured for this run.
 func buildToolsets(cfg config.Config) []adktool.Toolset {
 	var toolsets []adktool.Toolset
 	if servers := buildMCPServerConfigs(cfg); len(servers) > 0 {
 		mcpToolsets, _ := extension.BuildMCPToolsets(servers)
 		toolsets = append(toolsets, mcpToolsets...)
 	}
-	if cfg.A2A != nil && len(cfg.A2A.Agents) > 0 {
-		toolsets = append(toolsets, tools.NewA2AToolset(cfg.A2A))
-	}
 	if llms := cfg.LLMSSources(); llms != nil {
 		toolsets = append(toolsets, tools.NewLLMSCachedToolset(llms))
+	}
+	toolsets = append(toolsets, buildNonMCPToolsets(cfg)...)
+	return toolsets
+}
+
+// buildNonMCPToolsets assembles the toolsets that need no per-run
+// deferred/concurrent discovery (unlike MCP servers, which the interactive TUI
+// builds asynchronously in runDeferredInitPhase2) and no special flattened
+// representation (unlike LLMS sources, which the interactive TUI folds into
+// coreTools instead — see the matching comment in deferredInit): A2A agents
+// and block-builder. Both buildToolsets (non-interactive) and deferredInit
+// (interactive/TUI) call this so a toolset configured here is never silently
+// absent in one runtime mode but not the other — the gap that let the
+// block-builder toolset added in the SendMessage integration go unregistered
+// in the TUI until this function existed.
+func buildNonMCPToolsets(cfg config.Config) []adktool.Toolset {
+	var toolsets []adktool.Toolset
+	if cfg.A2A != nil && len(cfg.A2A.Agents) > 0 {
+		toolsets = append(toolsets, tools.NewA2AToolset(cfg.A2A))
 	}
 	if spec, run, chat, err := blockbuilder.NewClient(); err == nil {
 		toolsets = append(toolsets, blockbuilder.NewBlockBuilderToolset(spec, run, chat))
