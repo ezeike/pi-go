@@ -15,6 +15,27 @@ permissions:
 # (see Makefile history), so builds now use the default experiment set.
 
 jobs:
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      # The release workflow runs exactly this before packaging, so a lockfile
+      # that has drifted from package.json fails there — at tag time, on a
+      # release that is already cut. Dependabot opens npm PRs here (it bumps
+      # package.json and package-lock.json), and nothing regenerates bun.lock,
+      # so the drift is invisible until a release. Run it on every PR instead:
+      # it takes seconds and turns a failed release into a failed check.
+      - name: Verify bun.lock is in sync with package.json
+        working-directory: vscode
+        run: bun install --frozen-lockfile
+      - name: Test
+        working-directory: vscode
+        run: bun run test
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -26,7 +47,16 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.13
+          # Must be >= the Go toolchain go.mod selects, not just >= the
+          # directive: setup-go installs from go-version-file, so this binary
+          # compiles the tree with that toolchain's export data. golangci-lint
+          # v2.13 is built with a Go that decodes export data version 4 only;
+          # Go 1.27.2 emits version 5, and the mismatch surfaces as a bogus
+          # typecheck failure on a stdlib import ("could not decode
+          # internal/goarch, export data version 5 is greater than maximum
+          # supported version 4"), not as a lint finding about our code.
+          # Bumping the go directive past 1.27.1 requires bumping this too.
+          version: v2.14
 
   vulncheck:
     name: Vulncheck

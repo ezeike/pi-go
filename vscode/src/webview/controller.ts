@@ -1,19 +1,26 @@
 // DOM controller for the chat view. Renders the transcript, manages the
 // composer and message routing. Imports nothing from the extension host —
 // messages arrive via the router in main.ts.
+//
+// Sessions are tabs: each open session owns its own transcript element,
+// scroll pin, streaming parts, tool cards, commands and draft. The host is
+// the source of truth for the tab set (tabs messages reconcile the strip);
+// per-session messages (chunks, turns) route by sessionId.
 
 import type {
   CommandInfo,
   HostToWebview,
+  TabInfo,
   TurnSnapshot,
   ToolSnapshot,
   WebviewToHost,
 } from "../shared/protocol";
 import { renderMarkdown } from "./markdown";
 import { renderMermaidBlocks } from "./mermaid";
-import { toolCard, type ToolCard } from "./toolCard";
+import { toolCard, type ToolCard, formatDuration } from "./toolCard";
 import { Composer } from "./composer";
-import { gopher, iconButton } from "./icons";
+import { iconButton, mascot } from "./icons";
+import { copyButton } from "./clipboard";
 
 export interface ControllerHost {
   post(message: WebviewToHost): void;
@@ -21,19 +28,32 @@ export interface ControllerHost {
   getState(): { draft?: string; attachments?: string[]; sessionId?: string; welcomeDismissed?: boolean } | undefined;
 }
 
-export class ChatController {
-  private currentSessionId?: string;
-  private streaming = false;
-  private commands: CommandInfo[] = [];
-  private cards = new Map<string, ToolCard>();
+/** One open session tab: its DOM, streaming state, and composer draft. */
+interface TabState {
+  readonly sessionId: string;
+  title?: string;
+  streaming: boolean;
+  commands: CommandInfo[];
+  /** The transcript element; kept in the DOM (hidden) so scroll survives switches. */
+  readonly transcript: HTMLElement;
+  readonly cards: Map<string, ToolCard>;
+  readonly button: HTMLButtonElement;
+  openTextPart?: HTMLElement;
+  openThoughtPart?: HTMLElement;
+  pinned: boolean;
+  loading: boolean;
+  draft?: string;
+}
 
-  private readonly transcript: HTMLElement;
+export class ChatController {
+  private readonly tabs = new Map<string, TabState>();
+  private activeId?: string;
   private readonly header: HTMLElement;
   private readonly headerTitle: HTMLElement;
+  private readonly tabStrip: HTMLElement;
+  private readonly viewStack: HTMLElement;
   private readonly emptyState: HTMLElement;
   private readonly composer: Composer;
-  private openTextPart?: HTMLElement;
-  private openThoughtPart?: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -44,24 +64,31 @@ export class ChatController {
     this.headerTitle = document.createElement("span");
     this.headerTitle.className = "session-title";
     const historyButton = iconButton("history", "Session history", () => this.host.post({ type: "showHistory" }));
-    const newButton = iconButton("newChat", "New session", () => this.host.post({ type: "newSession" }));
     const pingButton = iconButton("ping", "Run pi ping", () => this.host.post({ type: "ping" }));
+    const newButton = iconButton("newChat", "New session", () => this.host.post({ type: "newSession" }));
     this.headerTitle.textContent = "Untitled";
     this.header.append(this.headerTitle, historyButton, pingButton, newButton);
 
-    this.transcript = document.createElement("div");
-    this.transcript.className = "transcript";
-    this.transcript.hidden = true;
-    this.transcript.setAttribute("role", "log");
-    this.transcript.setAttribute("aria-label", "Conversation");
+    this.tabStrip = document.createElement("div");
+    this.tabStrip.className = "tab-strip";
+    this.tabStrip.hidden = true;
+
+    this.viewStack = document.createElement("div");
+    this.viewStack.className = "view-stack";
 
     this.emptyState = document.createElement("div");
     this.emptyState.className = "empty-state";
     const brand = document.createElement("div");
     brand.className = "welcome-brand";
     const wordmark = document.createElement("h1");
-    wordmark.textContent = "Pi-Go";
-    brand.append(gopher(), wordmark);
+    wordmark.className = "wordmark";
+    wordmark.textContent = "pi-go";
+    const tagline = document.createElement("p");
+    tagline.className = "tagline";
+    tagline.textContent = "Your AI coding agent, in the editor";
+    const titles = document.createElement("div");
+    titles.append(wordmark, tagline);
+    brand.append(mascot(root.dataset.mascot), titles);
 
     const learn = document.createElement("section");
     learn.className = "learn-card";
@@ -69,12 +96,12 @@ export class ChatController {
     const learnHeader = document.createElement("div");
     learnHeader.className = "learn-header";
     const learnTitle = document.createElement("h2");
-    learnTitle.textContent = "Learn Pi-Go";
+    learnTitle.textContent = "Get started";
     const dismiss = iconButton("close", "Dismiss getting started", () => {
       learn.hidden = true;
       this.host.setState({ welcomeDismissed: true });
     });
-    learnHeader.append(gopher(), learnTitle, dismiss);
+    learnHeader.append(learnTitle, dismiss);
     const lessons = document.createElement("div");
     lessons.className = "learn-lessons";
     for (const [label, prompt] of [
@@ -105,18 +132,24 @@ export class ChatController {
     composerHost.className = "composer-host";
     this.composer = new Composer(composerHost, {
       onSend: (text, attachments) =>
-        this.host.post({ type: "prompt", sessionId: this.currentSessionId, text, attachments }),
+        this.host.post({ type: "prompt", sessionId: this.activeId, text, attachments }),
       onCancel: () => {
-        if (this.currentSessionId) this.host.post({ type: "cancel", sessionId: this.currentSessionId });
+        if (this.activeId) this.host.post({ type: "cancel", sessionId: this.activeId });
       },
-      onDraft: (text) => this.host.setState({ draft: text, sessionId: this.currentSessionId }),
+      onDraft: (text) => this.host.setState({ draft: text, sessionId: this.activeId }),
       onRequestFilePicker: () => this.host.post({ type: "requestFilePicker" }),
     });
 
-    root.append(this.header, this.transcript, this.emptyState, composerHost);
+    root.append(this.header, this.tabStrip, this.viewStack, this.emptyState, composerHost);
 
     // New tool output / chunks only scroll when the user is at the bottom.
-    this.transcript.addEventListener("scroll", () => this.updatePinned(), { passive: true });
+    // Scroll events do not bubble, but they do capture, so the stack listens
+    // on behalf of every tab transcript inside it.
+    this.viewStack.addEventListener(
+      "scroll",
+      () => this.updatePinned(),
+      { passive: true, capture: true },
+    );
 
     const restored = this.host.getState();
     if (restored?.draft) this.composer.restore(restored.draft);
@@ -135,66 +168,112 @@ export class ChatController {
   handle(message: HostToWebview): void {
     switch (message.type) {
       case "state": {
-        this.setSession(message.sessionId, message.title);
-        this.streaming = message.streaming;
-        this.composer.setStreaming(message.streaming);
-        this.commands = message.commands;
-        this.composer.setCommands(message.commands);
-        this.renderTurns(message.turns);
+        const tab = message.sessionId ? this.ensureTab(message.sessionId) : undefined;
+        if (tab) {
+          tab.commands = message.commands;
+          tab.streaming = message.streaming;
+          if (message.title) tab.title = message.title;
+          // A streaming tab's live DOM already holds every chunk (it hears the
+          // same notifications the store does); re-rendering the snapshot
+          // would split the streaming part into static + live halves.
+          if (!(tab.streaming && tab.transcript.children.length > 0)) {
+            this.renderTurns(tab, message.turns);
+          }
+          this.setTabLabel(tab);
+        }
+        this.showTab(message.sessionId);
+        this.composer.setStreaming(tab?.streaming === true);
+        this.composer.setCommands(tab?.commands ?? []);
+        break;
+      }
+      case "tabs": {
+        this.reconcileTabs(message.tabs, message.activeSessionId);
         break;
       }
       case "sessionLoaded": {
-        this.setSession(message.sessionId, message.title);
-        this.transcript.replaceChildren();
-        this.cards.clear();
-        this.showLoading();
+        const tab = this.ensureTab(message.sessionId);
+        if (message.title) tab.title = message.title;
+        this.setTabLabel(tab);
+        tab.cards.clear();
+        tab.openTextPart = undefined;
+        tab.openThoughtPart = undefined;
+        tab.loading = true;
+        this.clearTranscript(tab, "Loading session…");
         break;
       }
       case "replayStarted": {
-        this.cards.clear();
-        this.transcript.replaceChildren();
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        tab.cards.clear();
+        tab.openTextPart = undefined;
+        tab.openThoughtPart = undefined;
+        tab.loading = false;
+        this.clearTranscript(tab);
         break;
       }
       case "userTurn": {
-        if (!this.isCurrent(message.sessionId)) return;
-        this.openTextPart = undefined;
-        this.openThoughtPart = undefined;
-        this.streaming = true;
-        this.composer.setStreaming(true);
-        if (this.headerTitle.textContent === "Untitled") this.headerTitle.textContent = message.prompt;
-        this.appendUserTurn(message.prompt);
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        tab.openTextPart = undefined;
+        tab.openThoughtPart = undefined;
+        tab.streaming = true;
+        if (tab.sessionId === this.activeId) this.composer.setStreaming(true);
+        if (!tab.title || tab.title === "Untitled") {
+          tab.title = message.prompt;
+          this.setTabLabel(tab);
+          if (tab.sessionId === this.activeId) {
+            this.headerTitle.textContent = tab.title;
+            this.headerTitle.title = tab.title;
+          }
+        }
+        this.appendUserTurn(tab, message.prompt);
         break;
       }
       case "agentChunk": {
-        if (!this.isCurrent(message.sessionId)) return;
-        this.openThoughtPart = undefined;
-        this.appendStream(message.text, "text");
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        // Whitespace between two thoughts must not open an empty text block:
+        // it would close the thought and stack a second "Thinking" row.
+        if (!tab.openTextPart && !message.text.trim()) return;
+        this.closeThought(tab);
+        this.appendStream(tab, message.text, "text");
         break;
       }
       case "thoughtChunk": {
-        if (!this.isCurrent(message.sessionId)) return;
-        this.openTextPart = undefined;
-        this.appendStream(message.text, "thought");
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        if (!tab.openThoughtPart && !message.text.trim()) return;
+        this.closeText(tab);
+        this.appendStream(tab, message.text, "thought");
         break;
       }
       case "toolUpdate": {
-        if (!this.isCurrent(message.sessionId)) return;
-        this.openTextPart = undefined;
-        this.openThoughtPart = undefined;
-        this.upsertTool(message.tool);
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        // Only a new call ends the prose before it; a status update for an
+        // earlier card must not split text that is still streaming.
+        if (!tab.cards.has(message.tool.toolCallId)) {
+          this.closeText(tab);
+          this.closeThought(tab);
+        }
+        this.upsertTool(tab, message.tool);
         break;
       }
       case "turnEnd": {
-        if (!this.isCurrent(message.sessionId)) return;
-        this.streaming = false;
-        this.composer.setStreaming(false);
-        this.finalizeStreamedParts();
-        if (message.error) this.banner(message.error, message.errorDetail, message.errorSteps);
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        tab.streaming = false;
+        if (tab.sessionId === this.activeId) this.composer.setStreaming(false);
+        this.finalizeStreamedParts(tab);
+        // The failed turn may be a background tab's: its card belongs there.
+        if (message.error) this.banner(message.error, message.errorDetail, message.errorSteps, tab);
         break;
       }
       case "commandsUpdated": {
-        this.commands = message.commands;
-        this.composer.setCommands(message.commands);
+        const tab = this.tabs.get(message.sessionId);
+        if (!tab) return;
+        tab.commands = message.commands;
+        if (tab.sessionId === this.activeId) this.composer.setCommands(message.commands);
         break;
       }
       case "error": {
@@ -206,7 +285,10 @@ export class ChatController {
         break;
       }
       case "notice": {
-        this.notice(message.text);
+        const tab = (message.sessionId ? this.tabs.get(message.sessionId) : undefined)
+          ?? (this.activeId ? this.tabs.get(this.activeId) : undefined);
+        if (tab) this.notice(tab, message.text);
+        else this.standaloneNotice(message.text);
         break;
       }
       case "attachmentsAdded": {
@@ -219,94 +301,227 @@ export class ChatController {
     }
   }
 
-  // -- session / layout ----------------------------------------------------
+  // -- tabs ------------------------------------------------------------------
 
-  private setSession(sessionId: string | undefined, title: string | undefined): void {
-    this.currentSessionId = sessionId;
-    this.headerTitle.textContent = title && title !== "New session" ? title : "Untitled";
-    this.headerTitle.title = this.headerTitle.textContent;
-  }
+  /** Create the tab state (DOM + strip button) if it is not open yet. */
+  private ensureTab(sessionId: string): TabState {
+    const existing = this.tabs.get(sessionId);
+    if (existing) return existing;
 
-  private isCurrent(sessionId: string): boolean {
-    return sessionId === this.currentSessionId;
-  }
+    const transcript = document.createElement("div");
+    transcript.className = "transcript";
+    transcript.hidden = true;
+    transcript.setAttribute("role", "log");
+    transcript.setAttribute("aria-label", "Conversation");
 
-  private showTranscript(): void {
-    this.emptyState.hidden = true;
-    this.transcript.hidden = false;
-  }
-
-  private showLoading(): void {
-    const el = document.createElement("div");
-    el.className = "loading";
-    el.textContent = "Loading session…";
-    this.showTranscript();
-    this.transcript.append(el);
-  }
-
-  private renderTurns(turns: readonly TurnSnapshot[]): void {
-    this.transcript.replaceChildren();
-    this.cards.clear();
-    this.openTextPart = undefined;
-    this.openThoughtPart = undefined;
-    for (const turn of turns) {
-      if (turn.role === "user") {
-        this.appendUserTurn(turn.prompt);
-        continue;
+    const button = document.createElement("button");
+    button.className = "tab";
+    button.type = "button";
+    const label = document.createElement("span");
+    label.className = "tab-label";
+    const dot = document.createElement("span");
+    dot.className = "tab-dot";
+    dot.hidden = true;
+    dot.setAttribute("aria-hidden", "true");
+    const close = document.createElement("span");
+    close.className = "tab-close";
+    close.setAttribute("aria-hidden", "true");
+    close.textContent = "×";
+    button.append(dot, label, close);
+    button.addEventListener("click", (e) => {
+      if (close.contains(e.target as Node)) {
+        this.host.post({ type: "closeTab", sessionId });
+        return;
       }
-      for (const part of turn.parts) {
-        if (part.kind === "text") this.appendAgentTextBlock(markdownBlock(part.text));
-        else if (part.kind === "thought") this.appendThoughtBlock(markdownBlock(part.text));
-        else this.upsertTool(part.tool);
-      }
+      this.host.post({ type: "activateTab", sessionId });
+    });
+
+    const tab: TabState = {
+      sessionId,
+      streaming: false,
+      commands: [],
+      transcript,
+      cards: new Map(),
+      button,
+      pinned: true,
+      loading: false,
+    };
+    this.tabs.set(sessionId, tab);
+    // A session now owns the view: sweep any standalone banner/notice left
+    // over from before any tab existed — in the flex stack it would sit
+    // beside the transcript instead of being replaced by it.
+    for (const el of Array.from(this.viewStack.children)) {
+      if (el instanceof HTMLElement && el.dataset.standalone === "true") el.remove();
     }
-    this.emptyState.hidden = turns.length > 0;
-    this.transcript.hidden = turns.length === 0;
-    this.scrollToBottom(true);
+    this.viewStack.append(transcript);
+    // Keep strip order = host order: new tabs sit before the trailing "+".
+    this.tabStrip.insertBefore(button, this.tabStrip.querySelector(".tab-new"));
+    this.setTabLabel(tab);
+    return tab;
+  }
+
+  /** Make the strip match the host's tab list exactly. */
+  private reconcileTabs(tabs: readonly TabInfo[], activeSessionId: string | undefined): void {
+    const open = new Set(tabs.map((t) => t.sessionId));
+    for (const [id, tab] of this.tabs) {
+      if (open.has(id)) continue;
+      tab.transcript.remove();
+      tab.button.remove();
+      this.tabs.delete(id);
+    }
+    for (const info of tabs) {
+      const tab = this.ensureTab(info.sessionId);
+      tab.streaming = info.streaming;
+      if (info.title) tab.title = info.title;
+      this.setTabLabel(tab);
+    }
+    if (tabs.length === 0) {
+      this.tabStrip.hidden = true;
+      return;
+    }
+    this.tabStrip.hidden = false;
+    if (!this.tabStrip.querySelector(".tab-new")) {
+      const add = document.createElement("button");
+      add.className = "tab-new";
+      add.type = "button";
+      add.title = "New session";
+      add.setAttribute("aria-label", "New session");
+      add.textContent = "+";
+      add.addEventListener("click", () => this.host.post({ type: "newSession" }));
+      this.tabStrip.append(add);
+    }
+    this.showTab(activeSessionId);
+  }
+
+  /** Switch the visible tab; keeps a per-tab draft. A no-op when the tab is
+   *  already visible — otherwise every state message would wipe the composer. */
+  private showTab(sessionId: string | undefined): void {
+    const tab = sessionId ? this.tabs.get(sessionId) : undefined;
+    if (this.activeId === sessionId && tab) {
+      this.emptyState.hidden = tab.loading || tab.streaming || tab.transcript.children.length > 0;
+      return;
+    }
+    if (this.activeId) {
+      const prev = this.tabs.get(this.activeId);
+      if (prev) prev.draft = this.composer.value();
+    }
+    // First tab ever shown: seed its draft with the persisted one, so a
+    // webview reload does not wipe what the user had typed.
+    const persisted = !this.activeId ? this.host.getState()?.draft : undefined;
+    this.activeId = tab ? sessionId : undefined;
+
+    for (const t of this.tabs.values()) t.transcript.hidden = t !== tab;
+    const hasContent =
+      tab !== undefined && (tab.loading || tab.streaming || tab.transcript.children.length > 0);
+    this.emptyState.hidden = hasContent;
+    this.tabStrip.querySelectorAll(".tab").forEach((el) => {
+      el.classList.toggle("active", (el as HTMLButtonElement).dataset.sessionId === sessionId);
+    });
+
+    if (!tab) {
+      this.headerTitle.textContent = "Untitled";
+      this.headerTitle.title = "Untitled";
+      return;
+    }
+    this.headerTitle.textContent = tab.title && tab.title !== "New session" ? tab.title : "Untitled";
+    this.headerTitle.title = this.headerTitle.textContent;
+    this.composer.restore(tab.draft ?? persisted ?? "");
+    this.composer.setStreaming(tab.streaming);
+    this.composer.setCommands(tab.commands);
+    // A tab that streamed while hidden sits where it was pinned; catch up.
+    if (tab.pinned) this.scrollToBottom(tab, true);
+  }
+
+  private setTabLabel(tab: TabState): void {
+    const label = tab.button.querySelector(".tab-label");
+    if (label) label.textContent = tab.title || "Untitled";
+    tab.button.dataset.sessionId = tab.sessionId;
+    tab.button.title = tab.title || "Untitled";
+    const dot = tab.button.querySelector(".tab-dot") as HTMLElement | null;
+    if (dot) dot.hidden = !tab.streaming;
   }
 
   // -- turn rendering ------------------------------------------------------
 
-  private appendUserTurn(prompt: string): void {
-    this.showTranscript();
+  private clearTranscript(tab: TabState, loadingText?: string): void {
+    tab.transcript.replaceChildren();
+    if (loadingText) {
+      const el = document.createElement("div");
+      el.className = "loading";
+      el.textContent = loadingText;
+      tab.transcript.append(el);
+    }
+    this.showTab(this.activeId);
+  }
+
+  private renderTurns(tab: TabState, turns: readonly TurnSnapshot[]): void {
+    tab.transcript.replaceChildren();
+    tab.cards.clear();
+    tab.openTextPart = undefined;
+    tab.openThoughtPart = undefined;
+    tab.loading = false;
+    for (const turn of turns) {
+      if (turn.role === "user") {
+        this.appendUserTurn(tab, turn.prompt);
+        continue;
+      }
+      for (const part of turn.parts) {
+        if (part.kind === "text") this.appendAgentTextBlock(tab, markdownBlock(part.text));
+        else if (part.kind === "thought") this.appendThoughtBlock(tab, markdownBlock(part.text));
+        else this.upsertTool(tab, part.tool);
+      }
+    }
+  }
+
+  /** A tab gained content. Only the active tab may become visible: showTab
+   *  owns visibility, and unhiding a background transcript renders it beside
+   *  the active one in the view stack. */
+  private revealIfActive(tab: TabState): void {
+    if (tab.sessionId !== this.activeId) return;
+    tab.transcript.hidden = false;
+    this.emptyState.hidden = true;
+  }
+
+  private appendUserTurn(tab: TabState, prompt: string): void {
+    this.revealIfActive(tab);
     const turn = document.createElement("div");
     turn.className = "turn user";
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     bubble.textContent = prompt;
     turn.append(bubble);
-    this.transcript.append(turn);
-    this.scrollToBottom();
+    tab.transcript.append(turn);
+    this.scrollToBottom(tab);
   }
 
-  /** Current agent turn, creating one if needed. */
-  private agentTurn(): HTMLElement {
-    const last = this.transcript.lastElementChild;
+  /** Current agent turn of a tab, creating one if needed. */
+  private agentTurn(tab: TabState): HTMLElement {
+    const last = tab.transcript.lastElementChild;
     if (last instanceof HTMLElement && last.classList.contains("turn") && last.classList.contains("agent")) {
       return last;
     }
-    this.showTranscript();
+    this.revealIfActive(tab);
     const turn = document.createElement("div");
     turn.className = "turn agent";
-    this.transcript.append(turn);
+    tab.transcript.append(turn);
     return turn;
   }
 
-  private appendStream(text: string, kind: "text" | "thought"): void {
-    const turn = this.agentTurn();
+  private appendStream(tab: TabState, text: string, kind: "text" | "thought"): void {
+    const turn = this.agentTurn(tab);
     let part =
       kind === "text"
-        ? this.openTextPart
-        : this.openThoughtPart;
+        ? tab.openTextPart
+        : tab.openThoughtPart;
     if (!part) {
       part = this.newStreamPart(kind);
       turn.append(part);
-      if (kind === "text") this.openTextPart = part;
-      else this.openThoughtPart = part;
+      if (kind === "text") tab.openTextPart = part;
+      else tab.openThoughtPart = part;
     }
     const target = part.querySelector(".stream-body");
     if (target) target.textContent += text;
-    this.scrollToBottom();
+    this.scrollToBottom(tab);
   }
 
   private newStreamPart(kind: "text" | "thought"): HTMLElement {
@@ -324,78 +539,95 @@ export class ChatController {
     // Thinking can be very verbose. Keep the disclosure collapsed while the
     // model streams; the complete thought remains available on demand.
     part.open = false;
+    part.dataset.startedAt = String(Date.now());
     const summary = document.createElement("summary");
     summary.className = "thought-summary";
+    const pulse = document.createElement("span");
+    pulse.className = "thought-pulse";
+    pulse.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
+    label.className = "thought-label";
     label.textContent = "Thinking";
     const status = document.createElement("span");
     status.className = "thought-status";
-    status.textContent = "in progress";
-    summary.append(label, status);
+    summary.append(pulse, label, status);
     const body = document.createElement("div");
     body.className = "thought-body stream-body";
     part.append(summary, body);
     return part;
   }
 
-  private finalizeStreamedParts(): void {
-    for (const part of this.transcript.querySelectorAll(".part.streaming")) {
-      const body = part.querySelector(".stream-body");
-      const text = body?.textContent ?? "";
-      part.classList.remove("streaming");
-      if (part.classList.contains("thought")) {
-        const status = part.querySelector(".thought-status");
-        if (status) status.textContent = "complete";
-        part.querySelector(".thought-body")?.replaceChildren();
-        const rendered = markdownBlock(text);
-        rendered.className = "thought-body md";
-        body?.replaceWith(rendered);
-        (part as HTMLDetailsElement).open = false;
-      } else {
-        part.replaceChildren(markdownBlock(text));
-      }
-    }
-    this.openTextPart = undefined;
-    this.openThoughtPart = undefined;
-    this.scrollToBottom();
+  private finalizeStreamedParts(tab: TabState): void {
+    for (const part of tab.transcript.querySelectorAll(".part.streaming")) finalizePart(part);
+    tab.openTextPart = undefined;
+    tab.openThoughtPart = undefined;
+    this.scrollToBottom(tab);
   }
 
-  private upsertTool(tool: ToolSnapshot): void {
-    const existing = this.cards.get(tool.toolCallId);
+  /** The open text part is done once anything else starts: render its
+   *  markdown now (code spans, bold) and drop its caret, instead of leaving
+   *  every paragraph of a long turn raw and blinking until turnEnd. */
+  private closeText(tab: TabState): void {
+    if (tab.openTextPart) finalizePart(tab.openTextPart);
+    tab.openTextPart = undefined;
+  }
+
+  /** Same for a thought: "Thinking" + pulse becomes "Thought · Ns". */
+  private closeThought(tab: TabState): void {
+    if (tab.openThoughtPart) finalizePart(tab.openThoughtPart);
+    tab.openThoughtPart = undefined;
+  }
+
+  private upsertTool(tab: TabState, tool: ToolSnapshot): void {
+    const existing = tab.cards.get(tool.toolCallId);
     if (existing) {
       existing.update(tool);
       return;
     }
     const card = toolCard(tool, (path) => this.host.post({ type: "revealFile", path }));
-    this.cards.set(tool.toolCallId, card);
-    this.agentTurn().append(card.root);
-    this.scrollToBottom();
+    tab.cards.set(tool.toolCallId, card);
+    this.agentTurn(tab).append(card.root);
+    this.scrollToBottom(tab);
   }
 
-  private appendAgentTextBlock(node: HTMLElement): void {
+  private appendAgentTextBlock(tab: TabState, node: HTMLElement): void {
     const part = document.createElement("div");
     part.className = "part text";
     part.append(node);
-    this.agentTurn().append(part);
+    this.agentTurn(tab).append(part);
   }
 
-  private appendThoughtBlock(node: HTMLElement): void {
+  private appendThoughtBlock(tab: TabState, node: HTMLElement): void {
     const part = document.createElement("details");
     part.className = "part thought";
     const summary = document.createElement("summary");
     summary.className = "thought-summary";
-    summary.textContent = "Thinking";
+    const label = document.createElement("span");
+    label.className = "thought-label";
+    // Replayed from history: it already ran, and no timing survives a
+    // reload, so state it as a fact rather than a live "Thinking…".
+    label.textContent = "Thought";
+    summary.append(label);
     part.append(summary, node);
-    this.agentTurn().append(part);
+    this.agentTurn(tab).append(part);
   }
 
-  private notice(text: string): void {
+  private notice(tab: TabState, text: string): void {
     const el = document.createElement("div");
     el.className = "notice";
     el.textContent = text;
-    this.showTranscript();
-    this.transcript.append(el);
-    this.scrollToBottom();
+    this.revealIfActive(tab);
+    tab.transcript.append(el);
+    this.scrollToBottom(tab);
+  }
+
+  /** A notice with no tab to live in (no session open yet). */
+  private standaloneNotice(text: string): void {
+    const el = document.createElement("div");
+    el.className = "notice";
+    el.dataset.standalone = "true";
+    el.textContent = text;
+    this.viewStack.append(el);
   }
 
   private appendPingResult(ok: boolean, title: string, detail: string): void {
@@ -409,12 +641,10 @@ export class ChatController {
     body.className = "ping-detail";
     body.textContent = detail;
     el.append(heading, body);
-    this.showTranscript();
-    this.transcript.append(el);
-    this.scrollToBottom();
+    this.appendStandaloneOrActive(el);
   }
 
-  private banner(message: string, detail?: string, steps?: readonly string[]): void {
+  private banner(message: string, detail?: string, steps?: readonly string[], tab?: TabState): void {
     const el = document.createElement("section");
     el.className = "error-card";
     el.setAttribute("role", "alert");
@@ -467,23 +697,36 @@ export class ChatController {
     actions.append(settings, logs);
     el.append(actions);
 
-    this.showTranscript();
-    this.transcript.append(el);
-    this.scrollToBottom();
+    this.appendStandaloneOrActive(el, tab);
+  }
+
+  /** Errors and ping results land in the given tab (the session they belong
+   *  to), else the active tab, else the view stack when no session is open. */
+  private appendStandaloneOrActive(el: HTMLElement, target?: TabState): void {
+    const tab = target ?? (this.activeId ? this.tabs.get(this.activeId) : undefined);
+    if (tab) {
+      this.revealIfActive(tab);
+      tab.transcript.append(el);
+      this.scrollToBottom(tab);
+    } else {
+      el.dataset.standalone = "true";
+      this.viewStack.append(el);
+    }
   }
 
   // -- scrolling -----------------------------------------------------------
 
-  private pinned = true;
-
   private updatePinned(): void {
-    const el = this.transcript;
-    this.pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
+    if (!tab) return;
+    const el = tab.transcript;
+    tab.pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   }
 
-  private scrollToBottom(force = false): void {
-    if (!force && !this.pinned) return;
-    this.transcript.scrollTop = this.transcript.scrollHeight;
+  private scrollToBottom(tab: TabState, force = false): void {
+    if (tab.sessionId !== this.activeId) return;
+    if (!force && !tab.pinned) return;
+    tab.transcript.scrollTop = tab.transcript.scrollHeight;
   }
 }
 
@@ -492,8 +735,64 @@ function markdownBlock(text: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "md";
   el.innerHTML = renderMarkdown(text);
+  decorateCodeBlocks(el);
   // Fire-and-forget: diagrams render when mermaid finishes loading; on
   // failure the source code blocks stay in place.
   void renderMermaidBlocks(el).catch(() => undefined);
   return el;
+}
+
+/** "Thought" alone once elapsed time is negligible; "for Ns" past 1s, so a
+ *  near-instant thought doesn't get a distracting "for 200ms". */
+function thoughtDurationLabel(startedAt: string | undefined): string {
+  const started = Number(startedAt);
+  if (!Number.isFinite(started)) return "";
+  const elapsed = Date.now() - started;
+  return elapsed >= 1000 ? `for ${formatDuration(elapsed)}` : "";
+}
+
+/** Settle one streaming part: raw text → rendered markdown, caret/pulse off. */
+function finalizePart(part: Element): void {
+  if (!part.classList.contains("streaming")) return;
+  const body = part.querySelector(".stream-body");
+  const text = body?.textContent ?? "";
+  part.classList.remove("streaming");
+  if (part.classList.contains("thought")) {
+    part.querySelector(".thought-pulse")?.remove();
+    const label = part.querySelector(".thought-label");
+    if (label) label.textContent = "Thought";
+    const status = part.querySelector(".thought-status");
+    if (status) status.textContent = thoughtDurationLabel((part as HTMLElement).dataset.startedAt);
+    const rendered = markdownBlock(text);
+    rendered.className = "thought-body md";
+    body?.replaceWith(rendered);
+    (part as HTMLDetailsElement).open = false;
+  } else {
+    part.replaceChildren(markdownBlock(text));
+  }
+}
+
+/** Wrap fenced code blocks with a header bar (language label + copy button).
+ *  Mermaid fences are left untouched — renderMermaidBlocks replaces them
+ *  with a diagram right after this runs. */
+function decorateCodeBlocks(root: HTMLElement): void {
+  for (const code of Array.from(root.querySelectorAll("pre > code[class*='language-']"))) {
+    if (code.classList.contains("language-mermaid")) continue;
+    const pre = code.parentElement;
+    if (!(pre instanceof HTMLElement)) continue;
+    const lang = code.className.match(/language-(\S+)/)?.[1] ?? "text";
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "code-block";
+    pre.replaceWith(wrapper);
+
+    const header = document.createElement("div");
+    header.className = "code-block-header";
+    const label = document.createElement("span");
+    label.className = "code-block-lang";
+    label.textContent = lang;
+    header.append(label, copyButton("Copy code", () => code.textContent ?? ""));
+
+    wrapper.append(header, pre);
+  }
 }

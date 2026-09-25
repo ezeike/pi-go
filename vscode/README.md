@@ -52,7 +52,14 @@ In addition to the native agent sessions above, the extension contributes a
 **pi-go** view container for session history and one **Pi-Go** chat in the
 secondary sidebar — the focused chat pattern Claude Code and Codex use:
 
-- **Chat** — a webview chat: streamed replies, collapsible thinking blocks,
+- **Chat** — a webview chat with parallel session tabs: the `+` in the
+  Sessions view (or the header) starts a new tab instead of replacing the
+  current conversation, each tab streams independently (per-session prompts
+  run in parallel over one ACP connection), a pulsing dot marks streaming
+  tabs, and `×` closes a tab (cancelling its in-flight prompt; the persisted
+  transcript stays on disk). Tabs keep their own scroll position and
+  composer draft. The active tab also has the existing features: streamed
+  replies, collapsible thinking blocks,
   live tool cards with real line diffs for file edits, fenced ```mermaid
   fences rendered as diagrams (the library loads on demand from cdnjs;
   offline, the source code block stays), a slash-command popup fed by
@@ -60,8 +67,9 @@ secondary sidebar — the focused chat pattern Claude Code and Codex use:
   the native path), a stop button (ACP `session/cancel`), and a badge with the
   number of running prompts.
 - **Sessions** — a tree of persisted pi-go sessions (`session/list`), newest
-  first. A single click loads the session and replays its transcript into the
-  chat view; the running-prompt count shows as the view badge.
+  first. A single click opens the session as a tab and replays its transcript
+  into it (an already-open tab is just activated); the running-prompt count
+  shows as the view badge.
 
 The chat works without `--enable-proposed-api` and keeps its composer draft and
 transcript when the sidebar is hidden. The first prompt creates a session, so
@@ -72,6 +80,40 @@ the Command Palette as `pi-go: Open Getting Started`, or the extension's
 walkthrough entry. It covers configuration, chat, sessions, and attachments.
 
 Keybinding: **cmd+alt+u** (ctrl+alt+u elsewhere) focuses the chat view.
+
+The chat follows whatever color theme is active and layers the
+[Pi-Go Design System](https://claude.ai/design/p/7009407c-e035-4157-bc52-4d4544f87be9)
+on top: Catppuccin Sky / Pink accents, sharp 2px/4px corners, gradient
+dividers, and one emoji badge per tool call (🔍 search, 📖 read, ✏️ edit,
+⚡ shell…). Light themes get deeper inks; high-contrast themes get the theme's
+own colors only.
+
+## Color themes
+
+Two workbench themes in the [Catppuccin palette](https://catppuccin.com/palette/)
+— pick one with **Preferences: Color Theme**:
+
+| Theme | Type | Look |
+|---|---|---|
+| **Pi-Go Neon** | dark | Catppuccin Mocha exactly: `#1e1e2e` base, Sky `#89dceb` accent, Pink badges |
+| **Pi-Go Daylight** | light | Catppuccin Latte, with accent inks deepened just enough to clear WCAG AA on `#eff1f5` |
+
+Both are compiled with [Catppuccin for VS Code](https://github.com/catppuccin/vscode)
+(MIT, © 2021 Catppuccin): its generator derives ~565 workbench colors, the
+TextMate rules and the semantic-token rules from a 26-color palette.
+`scripts/themes.mjs` reads the palette from `@catppuccin/palette`, darkens any
+accent that fails AA as text (none in Mocha; most of Latte's), and adds a few
+Pi-Go touches in Catppuccin hues (Sky/Blue cursor, Pink badges). The names
+stay "Neon"/"Daylight" because VS Code remembers the selected theme by name.
+The generated JSON in `themes/` is committed; after changing a palette run:
+
+```bash
+bun run themes
+```
+
+`test/themes.test.ts` fails when the committed JSON drifts from the generator,
+and checks contrast: editor text ≥ 7:1, keywords / functions / strings /
+numbers ≥ 4.5:1, comments ≥ 3:1.
 
 ## Launching with the proposed API
 

@@ -381,6 +381,28 @@ func (c *ChatModel) AppendNotice(text string) {
 	c.closeStreamingBlock()
 }
 
+// AppendNotice adds a system notice to the transcript — a skipped MCP server, a
+// blocked skill, an LSP hook warning — styled as an ordinary reply.
+//
+// It exists rather than reusing AppendWarning because a notice is not a warning:
+// "compaction ran" and "update available" carry no ⚠, and dressing them in the
+// warning color would make every benign startup message read as a problem.
+//
+// What it does share with the other appenders is closing the block. A notice
+// carries role "assistant" so it sits in the reply column, which means an
+// unflagged one is indistinguishable from a reply still being streamed: the next
+// text delta appends into it and overwrites the notice before it is ever
+// painted. The repaint the notice triggers is not the problem — painting a
+// message that the next delta erases is.
+func (c *ChatModel) AppendNotice(text string) {
+	c.Messages = append(c.Messages, message{
+		role:     "assistant",
+		content:  text,
+		isNotice: true,
+	})
+	c.closeStreamingBlock()
+}
+
 // AppendMeta adds a dim, single-line metadata note to the transcript (e.g. the
 // per-turn token summary). It is deliberately low-contrast: it must read as
 // chrome around the reply, not as content.

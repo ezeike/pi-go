@@ -1,6 +1,9 @@
 package lsp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // --- JSON-RPC 2.0 types ---
 
@@ -155,9 +158,83 @@ type MarkupContent struct {
 }
 
 // HoverResult is the result of a textDocument/hover request.
+//
+// Hover.contents is one of four shapes in the LSP spec: a plain string, a
+// MarkedString object ({language, value}), a MarkupContent object
+// ({kind, value}), or an array of any of those. Decoding straight into
+// MarkupContent fails on three of the four — jdtls returns an array, so
+// hover was broken against it — hence the custom unmarshaller below, which
+// normalizes every shape into MarkupContent.
 type HoverResult struct {
 	Contents MarkupContent `json:"contents"`
 	Range    *Range        `json:"range,omitempty"`
+}
+
+// UnmarshalJSON accepts any of the spec's hover-contents shapes and
+// normalizes them into MarkupContent.
+func (h *HoverResult) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Contents json.RawMessage `json:"contents"`
+		Range    *Range          `json:"range"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	h.Range = raw.Range
+	h.Contents = parseHoverContents(raw.Contents)
+	return nil
+}
+
+// parseHoverContents normalizes a hover contents value into MarkupContent.
+// Unrecognized shapes yield an empty value rather than an error: a missing
+// hover is not worth aborting the request over.
+func parseHoverContents(raw json.RawMessage) MarkupContent {
+	if len(raw) == 0 || string(raw) == "null" {
+		return MarkupContent{}
+	}
+
+	// The enclosing UnmarshalJSON decoded the whole document before calling
+	// this, so raw is always valid JSON and the decode cannot fail.
+	var value any
+	_ = json.Unmarshal(raw, &value)
+	return normalizeHoverContents(value)
+}
+
+// normalizeHoverContents flattens a decoded hover-contents value, which the
+// spec allows to be a string, an object, or an array of either.
+func normalizeHoverContents(value any) MarkupContent {
+	switch v := value.(type) {
+	case string:
+		return MarkupContent{Kind: "plaintext", Value: v}
+
+	case []any:
+		parts := make([]string, 0, len(v))
+		kind := ""
+		for _, item := range v {
+			mc := normalizeHoverContents(item)
+			if mc.Value != "" {
+				parts = append(parts, mc.Value)
+			}
+			if mc.Kind != "" {
+				kind = mc.Kind
+			}
+		}
+		return MarkupContent{Kind: kind, Value: strings.Join(parts, "\n\n")}
+
+	case map[string]any:
+		// MarkupContent carries {kind, value}; MarkedString carries
+		// {language, value}. Both put the text in "value".
+		text, _ := v["value"].(string)
+		kind, _ := v["kind"].(string)
+		if kind == "" {
+			if _, marked := v["language"]; marked {
+				kind = "plaintext"
+			}
+		}
+		return MarkupContent{Kind: kind, Value: text}
+	}
+
+	return MarkupContent{}
 }
 
 // --- Initialize request/response types ---

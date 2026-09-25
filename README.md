@@ -22,7 +22,7 @@ sandboxed tools, integrates LSP, and ships with a process-based subagent system.
 - **Session persistence** — JSONL append-only event logs with branching, compaction, and resume
 - **Model roles** — Named configurations (default, smol, slow, plan, commit) selectable via CLI flags
 - **Subagents** — Process-based multi-agent system with types: explore, plan, designer, reviewer, task, quick_task
-- **LSP** — JSON-RPC client for Go, TypeScript/JS, Python, and Rust, with auto-format and diagnostics hooks
+- **LSP** — JSON-RPC client for Go, TypeScript/JS, Python, Rust, and Java, with auto-format and diagnostics hooks
 - **AI Git tools** — Repository overview, file diffs, hunk parsing, and LLM-generated conventional commits (`/commit`)
 - **RPC server** — Unix socket JSON-RPC 2.0 for IDE/editor integration
 - **Memory Palace** — 4-layer contextual memory with SQLite storage, semantic embeddings (all-MiniLM-L6-v2), temporal knowledge graph, and project/conversation miners
@@ -275,6 +275,20 @@ export OLLAMA_API_KEY="..."   # optional — only to reach Ollama Cloud directly
 ```
 
 A name with no recognized prefix is rejected rather than guessed at — reach for the `ollama/` prefix or the `:cloud` suffix to name an Ollama model explicitly.
+
+To configure a provider interactively instead of exporting the variable yourself:
+
+```bash
+pi setup
+```
+
+The wizard asks which provider to use, for its API key, and which model should
+be the default. It writes the key to `~/.pi-go/.env` and the provider and model
+to the `default` role in `~/.pi-go/config.json` — the same places a hand-exported
+variable and a hand-edited config land. Providers that need no credential
+(Ollama, agentgateway) skip the key step; providers pi-go has no offline catalog
+for (Ollama, agentgateway, Azure, OpenCode) have their model typed in, since only
+you know what your daemon or deployment serves.
 
 A `:cloud` tag names a model, not a destination. With `OLLAMA_API_KEY` set the
 request goes straight to `api.ollama.com`; without one it goes to the local

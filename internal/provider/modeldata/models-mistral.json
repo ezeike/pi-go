@@ -1,6 +1,6 @@
 {
   "provider": "mistral",
-  "fetched_at": "2026-09-05T00:00:00Z",
+  "fetched_at": "2026-10-08T00:00:00Z",
   "models": [
     {
       "id": "codestral-2508",
@@ -53,7 +53,7 @@
       ]
     },
     {
-      "id": "magistral-small-latest",
+      "id": "magistral-medium-latest",
       "owned_by": "mistralai",
       "context_window": 262144,
       "capabilities": [
@@ -62,6 +62,16 @@
         "vision"
       ],
       "release_date": "2025-03-17"
+    },
+    {
+      "id": "magistral-small-latest",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
     },
     {
       "id": "ministral-14b-2512",
@@ -164,6 +174,26 @@
       "release_date": "2024-11-01"
     },
     {
+      "id": "mistral-large-4",
+      "owned_by": "mistralai",
+      "context_window": 1048576,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
+      "id": "mistral-large-4-0",
+      "owned_by": "mistralai",
+      "context_window": 1048576,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
       "id": "mistral-large-latest",
       "owned_by": "mistralai",
       "context_window": 262144,
@@ -174,6 +204,68 @@
         "vision"
       ],
       "release_date": "2024-11-01"
+    },
+    {
+      "id": "mistral-medium",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
+      "id": "mistral-medium-2604",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ],
+      "release_date": "2026-04-29"
+    },
+    {
+      "id": "mistral-medium-3",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
+      "id": "mistral-medium-3-5",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
+      "id": "mistral-medium-3.5",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
+      "id": "mistral-medium-latest",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ],
+      "release_date": "2026-04-29"
     },
     {
       "id": "mistral-small-2603",
@@ -208,6 +300,26 @@
       ]
     },
     {
+      "id": "mistral-vibe-cli-latest",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
+      "id": "mistral-vibe-cli-with-tools",
+      "owned_by": "mistralai",
+      "context_window": 262144,
+      "capabilities": [
+        "completion_chat",
+        "function_calling",
+        "vision"
+      ]
+    },
+    {
       "id": "voxtral-small-2507",
       "owned_by": "mistralai",
       "context_window": 32768,
@@ -227,6 +339,15 @@
       "release_date": "2025-07-15"
     },
     {
+      "id": "zai-glm-5",
+      "owned_by": "mistralai",
+      "context_window": 1048576,
+      "capabilities": [
+        "completion_chat",
+        "function_calling"
+      ]
+    },
+    {
       "id": "zai-glm-5-2",
       "owned_by": "mistralai",
       "context_window": 1048576,
@@ -235,6 +356,25 @@
         "function_calling"
       ],
       "release_date": "2026-06-13"
+    },
+    {
+      "id": "zai-glm-5-3",
+      "owned_by": "mistralai",
+      "context_window": 1048576,
+      "capabilities": [
+        "completion_chat",
+        "function_calling"
+      ],
+      "release_date": "2026-08-14"
+    },
+    {
+      "id": "zai-glm-latest",
+      "owned_by": "mistralai",
+      "context_window": 1048576,
+      "capabilities": [
+        "completion_chat",
+        "function_calling"
+      ]
     }
   ]
 }
