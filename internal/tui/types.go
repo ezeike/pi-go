@@ -85,6 +85,18 @@ type Config struct {
 	// A2A holds the configured A2A agent endpoints, shown in the sidebar.
 	A2A *config.A2AConfig
 
+	// Tools holds the core/local tools handed to agent.New (read, write, bash,
+	// subagent, LSP, memory, llms.txt, Gemini grounding, …) — everything that
+	// is not an MCP toolset. Used by /tools to list what the agent can
+	// actually call.
+	Tools []adktool.Tool
+	// NonMCPToolsets holds toolsets other than MCP (A2A, block-builder) that
+	// were registered on the agent. Kept as raw toolsets rather than resolved
+	// tool lists because, unlike MCP toolsets, their Tools() call is cheap and
+	// does no network I/O (see buildNonMCPToolsets' doc comment), so /tools
+	// calls it directly instead of needing a cached snapshot.
+	NonMCPToolsets []adktool.Toolset
+
 	// ModelSwitcher creates a new LLM instance for the given model name,
 	// updates the token tracker's context window size, and returns the
 	// wrapped LLM, resolved model name, and provider. Used by /model <name>.
@@ -132,6 +144,10 @@ type InitResult struct {
 	MCPToolsets []adktool.Toolset
 	// MCPServers holds the configured MCP server definitions.
 	MCPServers []extension.MCPServerConfig
+	// Tools and NonMCPToolsets are Config's fields of the same name — see
+	// their doc comments there. Threaded through here for /tools.
+	Tools          []adktool.Tool
+	NonMCPToolsets []adktool.Toolset
 }
 
 // CompactStatsProvider provides compaction statistics for TUI display.

@@ -2436,6 +2436,8 @@ func (m *model) handleInitEvent(msg initEventMsg) (tea.Model, tea.Cmd) {
 		m.diffRemoved = r.DiffRemoved
 		m.cfg.MCPToolsets = r.MCPToolsets
 		m.cfg.MCPServers = r.MCPServers
+		m.cfg.Tools = r.Tools
+		m.cfg.NonMCPToolsets = r.NonMCPToolsets
 
 		// Update input model with loaded skills.
 		m.inputModel.Skills = r.Skills

@@ -12,6 +12,8 @@ import (
 	pisession "github.com/dimetron/pi-go/internal/session"
 	"github.com/dimetron/pi-go/internal/subagent"
 
+	adktool "google.golang.org/adk/v2/tool"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -130,6 +132,7 @@ var slashCommandSpecs = []slashCommandSpec{
 	{name: "/model-price-refresh", desc: "Refresh model prices from models.dev", run: (*model).handleModelPriceRefreshCommand},
 	{name: "/rtk", desc: "Output compaction stats", run: slashCmdArgs((*model).handleRTKCommand)},
 	{name: "/mcp", desc: "List MCP servers and tool status", run: slashCmdVoid((*model).handleMCPCommand)},
+	{name: "/tools", desc: "List all tools registered on the agent", run: slashCmdVoid((*model).handleToolsCommand)},
 	{name: "/exit", desc: "Exit", run: slashCmdBare((*model).handleQuitCommand)},
 	{name: "/quit", desc: "Exit", run: slashCmdBare((*model).handleQuitCommand)},
 }
@@ -1123,6 +1126,69 @@ func (m *model) handleRTKCommand(args []string) {
 			content: "Usage: `/rtk` or `/rtk stats` — Show output compaction statistics",
 		})
 	}
+}
+
+// handleToolsCommand lists every tool actually registered on the agent: core
+// tools (read/write/bash/grep/… plus subagent, LSP, memory, llms.txt, and
+// Gemini grounding — whatever deferredInit built into coreTools), each
+// non-MCP toolset's tools (A2A, block-builder — cheap/no-network to call
+// Tools() on, per buildNonMCPToolsets' doc comment), and MCP tools already
+// loaded and cached by extension.LoadedToolsetTools (never triggers a fresh
+// MCP round trip, matching /mcp's own no-network-on-demand convention).
+func (m *model) handleToolsCommand() {
+	var b strings.Builder
+
+	type toolRow struct {
+		name string
+		desc string
+		long bool
+	}
+	renderSection := func(heading string, tools []adktool.Tool) {
+		if len(tools) == 0 {
+			return
+		}
+		rows := make([]toolRow, len(tools))
+		for i, t := range tools {
+			rows[i] = toolRow{name: t.Name(), desc: t.Description(), long: t.IsLongRunning()}
+		}
+		sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+
+		fmt.Fprintf(&b, "**%s** — %d tool", heading, len(rows))
+		if len(rows) != 1 {
+			b.WriteString("s")
+		}
+		b.WriteString("\n\n")
+		for _, r := range rows {
+			desc := strings.SplitN(r.desc, "\n", 2)[0]
+			if r.long {
+				fmt.Fprintf(&b, "- `%s` (long-running) — %s\n", r.name, desc)
+			} else {
+				fmt.Fprintf(&b, "- `%s` — %s\n", r.name, desc)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	renderSection("Core tools", m.cfg.Tools)
+
+	for _, ts := range m.cfg.NonMCPToolsets {
+		tools, err := ts.Tools(nil)
+		if err != nil {
+			continue
+		}
+		renderSection(ts.Name(), tools)
+	}
+
+	renderSection("MCP tools", extension.LoadedToolsetTools(m.cfg.MCPToolsets))
+
+	if b.Len() == 0 {
+		b.WriteString("No tools registered.")
+	}
+
+	m.chatModel.Messages = append(m.chatModel.Messages, message{
+		role:    "assistant",
+		content: strings.TrimRight(b.String(), "\n"),
+	})
 }
 
 // handleMCPCommand shows the status of configured MCP servers and their tools.

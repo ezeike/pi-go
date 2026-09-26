@@ -290,9 +290,10 @@ func deferredInit(
 	// A fresh slice, not append(ps.mcpToolsets, ...): ps.mcpToolsets is read
 	// again below (MCPToolsets: ps.mcpToolsets) and appending in place risks
 	// mutating its backing array if it has spare capacity.
-	mcpToolsets := make([]adktool.Toolset, 0, len(ps.mcpToolsets)+2)
+	nonMCPToolsets := buildNonMCPToolsets(cfg)
+	mcpToolsets := make([]adktool.Toolset, 0, len(ps.mcpToolsets)+len(nonMCPToolsets))
 	mcpToolsets = append(mcpToolsets, ps.mcpToolsets...)
-	mcpToolsets = append(mcpToolsets, buildNonMCPToolsets(cfg)...)
+	mcpToolsets = append(mcpToolsets, nonMCPToolsets...)
 	// llms.txt documentation sources are cheap to build (no network), so they
 	// attach synchronously here rather than through the deferred loader that
 	// handles MCP servers. Without this the fetch_docs tool exists in one-shot
@@ -420,6 +421,8 @@ func deferredInit(
 			DiffRemoved:    ps.diffRemoved,
 			MCPToolsets:    ps.mcpToolsets,
 			MCPServers:     buildMCPServerConfigs(cfg),
+			Tools:          coreTools,
+			NonMCPToolsets: nonMCPToolsets,
 		},
 	}
 
