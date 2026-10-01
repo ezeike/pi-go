@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 )
 
 // TestMain sets up test environment.
@@ -835,6 +837,23 @@ func TestCoreToolsWebSearchOptIn(t *testing.T) {
 	if !slices.Contains(names, "web_search") {
 		t.Errorf("WithWebSearch did not register web_search; tools = %v", names)
 	}
+}
+
+func TestCoreToolsForgeControllerOptIn(t *testing.T) {
+	sb := testSandbox(t, t.TempDir())
+	tools, err := CoreTools(sb, WithForgeController(forgecontroller.NewManager()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools {
+		if tool.Name() == "forge_controller" {
+			if !tool.IsLongRunning() {
+				t.Error("forge_controller must be long-running")
+			}
+			return
+		}
+	}
+	t.Error("WithForgeController did not register forge_controller")
 }
 
 // PI_WEB_SEARCH is the switch a subagent can inherit. A flag cannot reach one:

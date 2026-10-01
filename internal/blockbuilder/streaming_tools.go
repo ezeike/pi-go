@@ -12,10 +12,9 @@ import (
 )
 
 type ProposeSpecChangeArgs struct {
-	PluginID             string `json:"plugin_id" jsonschema:"the plugin whose spec is being drafted"`
-	ConversationID       string `json:"conversation_id,omitempty" jsonschema:"existing conversation to continue; omit or empty to start a new one"`
-	Message              string `json:"message" jsonschema:"natural-language request describing the desired spec change"`
-	SpecProposalsEnabled bool   `json:"spec_proposals_enabled" jsonschema:"true to allow the model to propose spec YAML this turn; false keeps the turn to free-form discussion"`
+	PluginID       string `json:"plugin_id" jsonschema:"the plugin whose spec is being drafted"`
+	ConversationID string `json:"conversation_id,omitempty" jsonschema:"existing conversation to continue; omit or empty to start a new one"`
+	Message        string `json:"message" jsonschema:"natural-language request describing the desired spec change"`
 }
 
 // ProposeSpecChangeResult is propose_spec_change's return value. ConversationID is the
@@ -68,10 +67,9 @@ func NewProposeSpecChangeTool(spec sdk.SpecClient, reg *progressRegistry) (tool.
 			return ProposeSpecChangeResult{ConversationID: key}, nil
 		}
 		stream, err := spec.ProposeSpecChange(context.WithoutCancel(ctx), &pluginv1.ProposeSpecChangeRequest{
-			PluginId:             args.PluginID,
-			ConversationId:       args.ConversationID,
-			Message:              args.Message,
-			SpecProposalsEnabled: args.SpecProposalsEnabled,
+			PluginId:       args.PluginID,
+			ConversationId: args.ConversationID,
+			Message:        args.Message,
 		})
 		if err != nil {
 			buf.finish(fmt.Errorf("propose_spec_change: %w", err))
@@ -169,10 +167,9 @@ func NewGetRunProgressTool(reg *progressRegistry) (tool.Tool, error) {
 }
 
 type SendMessageArgs struct {
-	PluginID             string `json:"plugin_id" jsonschema:"the plugin this chat is scoped to"`
-	ConversationID       string `json:"conversation_id,omitempty" jsonschema:"existing conversation to continue; omit or empty to start a new one. Interchangeable with a conversation_id from propose_spec_change/get_spec_progress — both RPCs write through the same conversation storage, so a conversation started by either is valid input to the other."`
-	Message              string `json:"message" jsonschema:"user's natural-language message"`
-	SpecProposalsEnabled bool   `json:"spec_proposals_enabled" jsonschema:"the toggle state for THIS turn only, sent fresh every call, never persisted server-side: false (default) keeps the turn in general-purpose discovery (tool-calling over list_primitives/get_spec/validate_spec); true runs this turn through the same spec-drafting generation flow propose_spec_change uses instead of the discovery loop."`
+	PluginID       string `json:"plugin_id" jsonschema:"the plugin this chat is scoped to"`
+	ConversationID string `json:"conversation_id,omitempty" jsonschema:"existing conversation to continue; omit or empty to start a new one. Interchangeable with a conversation_id from propose_spec_change/get_spec_progress — both RPCs write through the same conversation storage, so a conversation started by either is valid input to the other."`
+	Message        string `json:"message" jsonschema:"user's natural-language message"`
 }
 
 // SendMessageResult is send_message's return value. ConversationID is the caller-supplied value if
@@ -207,10 +204,9 @@ func NewSendMessageTool(chat sdk.ChatClient, reg *progressRegistry) (tool.Tool, 
 			return SendMessageResult{ConversationID: key}, nil
 		}
 		stream, err := chat.SendMessage(context.WithoutCancel(ctx), &pluginv1.SendMessageRequest{
-			PluginId:             args.PluginID,
-			ConversationId:       args.ConversationID,
-			Message:              args.Message,
-			SpecProposalsEnabled: args.SpecProposalsEnabled,
+			PluginId:       args.PluginID,
+			ConversationId: args.ConversationID,
+			Message:        args.Message,
 		})
 		if err != nil {
 			buf.finish(fmt.Errorf("send_message: %w", err))

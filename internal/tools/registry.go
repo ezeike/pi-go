@@ -13,14 +13,17 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
+
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 )
 
 // CoreOption customizes the core tool set.
 type CoreOption func(*coreConfig)
 
 type coreConfig struct {
-	bashSupervisor *BashSupervisor
-	readLedger     *ReadLedger
+	bashSupervisor  *BashSupervisor
+	readLedger      *ReadLedger
+	forgeController *forgecontroller.Manager
 	// webSearch opts into the web_search tool. Off by default because the tool
 	// needs a search backend that is often absent, so advertising it hands the
 	// model something that fails mid-turn. See WithWebSearch.
@@ -42,6 +45,12 @@ func WithBashSupervisor(sup *BashSupervisor) CoreOption {
 // for tools built by this call.
 func WithReadLedger(l *ReadLedger) CoreOption {
 	return func(c *coreConfig) { c.readLedger = l }
+}
+
+// WithForgeController registers the project-scoped Forge Controller tool. The
+// caller owns manager and must close it when its agent session ends.
+func WithForgeController(manager *forgecontroller.Manager) CoreOption {
+	return func(c *coreConfig) { c.forgeController = manager }
 }
 
 // WithWebSearch registers the web_search tool.
@@ -116,7 +125,7 @@ func CoreTools(sandbox *Sandbox, opts ...CoreOption) ([]tool.Tool, error) {
 		newGitHunkTool,
 	}
 
-	tools := make([]tool.Tool, 0, len(builders)+1)
+	tools := make([]tool.Tool, 0, len(builders)+2)
 	for _, b := range builders {
 		t, err := b(sandbox)
 		if err != nil {
@@ -131,6 +140,14 @@ func CoreTools(sandbox *Sandbox, opts ...CoreOption) ([]tool.Tool, error) {
 		return nil, err
 	}
 	tools = append(tools, sessionStatsTool)
+
+	if cfg.forgeController != nil {
+		forgeTool, err := NewForgeControllerTool(cfg.forgeController, sandbox.Dir())
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, forgeTool)
+	}
 
 	// Add web_search only when the caller opted in. It reaches the network
 	// rather than the filesystem, and where no Ollama daemon or OLLAMA_API_KEY
@@ -277,12 +294,24 @@ func markCoerceProp(props map[string]bool, prefix, name, fullName string) {
 // Wraps with type coercion for integer/boolean fields that LLMs may send as strings,
 // and parameter alias resolution for common LLM naming mistakes.
 func newTool[TArgs, TResults any](name, description string, handler functiontool.Func[TArgs, TResults], aliases ...map[string]string) (tool.Tool, error) {
+	return newFunctionTool(name, description, handler, false, aliases...)
+}
+
+// newLongRunningTool is newTool for a function call that may block while an
+// external controller completes a turn. It preserves the same lenient input
+// handling, so the long-running marker is the only behavior change.
+func newLongRunningTool[TArgs, TResults any](name, description string, handler functiontool.Func[TArgs, TResults], aliases ...map[string]string) (tool.Tool, error) {
+	return newFunctionTool(name, description, handler, true, aliases...)
+}
+
+func newFunctionTool[TArgs, TResults any](name, description string, handler functiontool.Func[TArgs, TResults], longRunning bool, aliases ...map[string]string) (tool.Tool, error) {
 	schema := lenientSchema[TArgs]()
 	declSchema := declarationSchema[TArgs]()
 	inner, err := functiontool.New(functiontool.Config{
-		Name:        name,
-		Description: description,
-		InputSchema: schema,
+		Name:          name,
+		Description:   description,
+		InputSchema:   schema,
+		IsLongRunning: longRunning,
 	}, handler)
 	if err != nil {
 		return nil, err

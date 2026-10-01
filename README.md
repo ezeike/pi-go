@@ -22,6 +22,7 @@ sandboxed tools, integrates LSP, and ships with a process-based subagent system.
 - **Session persistence** — JSONL append-only event logs with branching, compaction, and resume
 - **Model roles** — Named configurations (default, smol, slow, plan, commit) selectable via CLI flags
 - **Subagents** — Process-based multi-agent system with types: explore, plan, designer, reviewer, task, quick_task
+- **Forge Controller** — A persistent ACP controller session per project, available to the model as `forge_controller`
 - **LSP** — JSON-RPC client for Go, TypeScript/JS, Python, Rust, and Java, with auto-format and diagnostics hooks
 - **AI Git tools** — Repository overview, file diffs, hunk parsing, and LLM-generated conventional commits (`/commit`)
 - **RPC server** — Unix socket JSON-RPC 2.0 for IDE/editor integration
@@ -523,6 +524,24 @@ Self-hosted or LAN endpoints can be declared in config instead of exported in ev
 Precedence is `--url` flag, then environment variable, then `baseURLs` config. The matching env vars are
 `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL`, `MISTRAL_BASE_URL`, `XAI_BASE_URL`, `OPENROUTER_BASE_URL`, `OPENCODE_BASE_URL`, and `OLLAMA_HOST`. A per-shell or
 CI override still takes effect. An empty env var does not mask a configured value.
+
+### Forge Controller
+
+Pi starts Forge Controller on the first `forge_controller` tool call for a
+project and keeps its ACP session alive for the rest of the pi session. The tool
+accepts `status`, `pause` and `resume` with a `component`, or `resume_task` with
+a `task_id`; these map to the controller's `/forge-*` commands without exposing
+raw ACP JSON-RPC to the model.
+
+Set `PI_ACP_FORGE_CONTROLLER_CMD` when `forge-controller` is not on `PATH`:
+
+```bash
+export PI_ACP_FORGE_CONTROLLER_CMD="$HOME/.local/bin/forge-controller"
+```
+
+Forge Controller still owns its own project task-state configuration. In
+particular, set `CLAUDE_CONFIG_DIR` and `ARCHITECT_ROOT` as required by that
+controller; pi passes the current project directory as the ACP session `cwd`.
 
 ### Ollama generation tuning
 

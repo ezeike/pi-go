@@ -107,8 +107,8 @@ func TestBuildRuntimeRegistersClosers(t *testing.T) {
 		t.Fatalf("buildRuntime: %v", err)
 	}
 
-	// sandbox, bash supervisor, orchestrator, memory, palace, LSP.
-	if want := 6; len(a.closers) != want {
+	// sandbox, bash supervisor, Forge Controller, orchestrator, memory, palace, LSP.
+	if want := 7; len(a.closers) != want {
 		t.Errorf("registered %d closers, want %d: one subsystem is not being released", len(a.closers), want)
 	}
 	if err := a.Close(); err != nil {

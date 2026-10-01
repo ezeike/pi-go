@@ -68,7 +68,7 @@ func TestProposeSpecChangeTool_ContinuingConversation_ReturnsGivenID(t *testing.
 	}
 
 	res, err := runTool[ProposeSpecChangeArgs, ProposeSpecChangeResult](t, tl, ProposeSpecChangeArgs{
-		PluginID: "p1", ConversationID: "conv-existing", Message: "add a transfer tx", SpecProposalsEnabled: true,
+		PluginID: "p1", ConversationID: "conv-existing", Message: "add a transfer tx",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)

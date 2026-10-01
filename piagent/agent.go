@@ -17,6 +17,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/agent"
 	"github.com/dimetron/pi-go/internal/autocompact"
 	"github.com/dimetron/pi-go/internal/config"
@@ -250,8 +251,10 @@ func (a *Agent) buildRuntime(ctx context.Context, o options, cfg *config.Config,
 	// Backgrounded commands have no owner but this supervisor; leaving them
 	// running past Close is a leaked process tree.
 	a.push(func() error { bashSup.KillAll(); return nil })
+	forgeManager := forgecontroller.NewManager()
+	a.push(forgeManager.CloseAll)
 
-	coreTools, err := tools.CoreTools(sandbox, tools.WithBashSupervisor(bashSup))
+	coreTools, err := tools.CoreTools(sandbox, tools.WithBashSupervisor(bashSup), tools.WithForgeController(forgeManager))
 	if err != nil {
 		return nil, a.abort(fmt.Errorf("creating core tools: %w", err))
 	}

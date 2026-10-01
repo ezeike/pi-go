@@ -18,6 +18,7 @@ import (
 	adksession "google.golang.org/adk/v2/session"
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/acp/server/adapter"
 	piagent "github.com/dimetron/pi-go/internal/agent"
 	"github.com/dimetron/pi-go/internal/autocompact"
@@ -446,13 +447,16 @@ func buildSessionResources(rt RuntimeConfig, cfg config.Config, turn PromptTurn,
 	}
 
 	bashSup := tools.NewBashSupervisor()
-	coreTools, err := tools.CoreTools(sandbox, tools.WithBashSupervisor(bashSup))
+	forgeManager := forgecontroller.NewManager()
+	coreTools, err := tools.CoreTools(sandbox, tools.WithBashSupervisor(bashSup), tools.WithForgeController(forgeManager))
 	if err != nil {
+		_ = forgeManager.CloseAll()
 		_ = sandbox.Close()
 		return nil, fmt.Errorf("creating core tools: %w", err)
 	}
 	bashCtlTools, err := tools.BashControlTools(bashSup)
 	if err != nil {
+		_ = forgeManager.CloseAll()
 		_ = sandbox.Close()
 		return nil, fmt.Errorf("creating bash control tools: %w", err)
 	}
@@ -464,6 +468,7 @@ func buildSessionResources(rt RuntimeConfig, cfg config.Config, turn PromptTurn,
 		// Backgrounded commands outlive the turn by design, so the session
 		// teardown is the only thing that will ever reap them.
 		bashSup.KillAll()
+		_ = forgeManager.CloseAll()
 		lspMgr.Shutdown()
 		orch.Shutdown()
 		_ = sandbox.Close()

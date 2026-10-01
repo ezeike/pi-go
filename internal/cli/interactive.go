@@ -16,6 +16,7 @@ import (
 	adkmodel "google.golang.org/adk/v2/model"
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/agent"
 	"github.com/dimetron/pi-go/internal/autocompact"
 	"github.com/dimetron/pi-go/internal/config"
@@ -35,14 +36,15 @@ import (
 
 // initResources tracks resources created during deferred init for cleanup.
 type initResources struct {
-	sandbox    *tools.Sandbox
-	lspMgr     *lsp.Manager
-	orch       *subagent.Orchestrator
-	memStore   memory.Store
-	memWorker  *memory.Worker
-	sessionLog *logger.Logger
-	sessionID  string // captured for resume hint on exit
-	bashSup    *tools.BashSupervisor
+	sandbox      *tools.Sandbox
+	lspMgr       *lsp.Manager
+	orch         *subagent.Orchestrator
+	memStore     memory.Store
+	memWorker    *memory.Worker
+	sessionLog   *logger.Logger
+	sessionID    string // captured for resume hint on exit
+	bashSup      *tools.BashSupervisor
+	forgeManager *forgecontroller.Manager
 
 	// memSummarizer, with memSessionID and memProject, describes the
 	// end-of-session summary written during cleanup. All three are empty when
@@ -58,6 +60,9 @@ func (r *initResources) cleanup() {
 	// exact failure this supervisor was introduced to prevent.
 	if r.bashSup != nil {
 		r.bashSup.KillAll()
+	}
+	if r.forgeManager != nil {
+		_ = r.forgeManager.CloseAll()
 	}
 	if r.sessionLog != nil {
 		// Detach before closing: a late trace from an in-flight streaming body
@@ -451,8 +456,11 @@ func deferredInitCoreTools(sandboxRoot, worktreeDir string, res *initResources) 
 	// once there is somewhere to stream to.
 	bashSup := tools.NewBashSupervisor()
 	res.bashSup = bashSup
+	forgeManager := forgecontroller.NewManager()
+	res.forgeManager = forgeManager
 
-	coreTools, err := tools.CoreTools(sandbox, coreToolOptions(bashSup)...)
+	options := append(coreToolOptions(bashSup), tools.WithForgeController(forgeManager))
+	coreTools, err := tools.CoreTools(sandbox, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating core tools: %w", err)
 	}

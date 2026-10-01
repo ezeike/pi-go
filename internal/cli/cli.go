@@ -24,6 +24,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/agent"
 	"github.com/dimetron/pi-go/internal/autocompact"
 	"github.com/dimetron/pi-go/internal/blockbuilder"
@@ -688,6 +689,7 @@ type nonInteractiveRuntime struct {
 	orch         *subagent.Orchestrator
 	agentEventCh chan tui.AgentSubEvent
 	bashSup      *tools.BashSupervisor
+	forgeManager *forgecontroller.Manager
 }
 
 func initNonInteractiveRuntime(ctx context.Context, cfg *config.Config, cwd, sandboxRoot, worktreeDir string) (*nonInteractiveRuntime, error) {
@@ -703,13 +705,17 @@ func initNonInteractiveRuntime(ctx context.Context, cfg *config.Config, cwd, san
 	}
 
 	bashSup := tools.NewBashSupervisor()
-	coreTools, err := tools.CoreTools(sandbox, coreToolOptions(bashSup)...)
+	forgeManager := forgecontroller.NewManager()
+	options := append(coreToolOptions(bashSup), tools.WithForgeController(forgeManager))
+	coreTools, err := tools.CoreTools(sandbox, options...)
 	if err != nil {
+		_ = forgeManager.CloseAll()
 		_ = sandbox.Close()
 		return nil, fmt.Errorf("creating core tools: %w", err)
 	}
 	bashCtlTools, err := tools.BashControlTools(bashSup)
 	if err != nil {
+		_ = forgeManager.CloseAll()
 		_ = sandbox.Close()
 		return nil, fmt.Errorf("creating bash control tools: %w", err)
 	}
@@ -752,6 +758,7 @@ func initNonInteractiveRuntime(ctx context.Context, cfg *config.Config, cwd, san
 		orch:         orch,
 		agentEventCh: agentEventCh,
 		bashSup:      bashSup,
+		forgeManager: forgeManager,
 	}, nil
 }
 
@@ -763,6 +770,9 @@ func (r *nonInteractiveRuntime) close() {
 	// running past the run is a leaked process tree.
 	if r.bashSup != nil {
 		r.bashSup.KillAll()
+	}
+	if r.forgeManager != nil {
+		_ = r.forgeManager.CloseAll()
 	}
 	if r.orch != nil {
 		r.orch.Shutdown()
