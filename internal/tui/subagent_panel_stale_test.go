@@ -132,7 +132,7 @@ func TestStalePanel_CancelledTurnShowsPlaceholder(t *testing.T) {
 func TestStalePanel_FollowUpPromptHidesStaleCard(t *testing.T) {
 	m := stalePanelModel(t)
 	m = updateWith(t, m, subagentCall("call-1", "tasks", "alpha-job"))
-	// A steer or queued prompt: a new user message while the model is running.
+	// A queued prompt: a new user message once the previous turn has ended.
 	m.chatModel.Messages = append(m.chatModel.Messages, message{role: "user", content: "never mind"})
 	wantPlaceholder(t, m, "alpha-job")
 }

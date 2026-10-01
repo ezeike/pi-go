@@ -82,12 +82,6 @@ type model struct {
 	agentCancel    context.CancelFunc // cancels the active agent response without quitting the TUI
 	pendingPrompts []queuedPrompt     // prompts submitted while a response is active
 
-	// steering marks the current turn as replaced by a steer rather than
-	// stopped. The turn still ends with context.Canceled — that is the only
-	// thing cancellation can produce — but a steer is not a failure, so the
-	// error is not printed and no Ctrl+R retry is offered for it.
-	steering bool
-
 	// The prompt of the most recent turn, kept so a turn that failed can be
 	// re-sent without retyping it. lastPromptFailed marks it as worth offering:
 	// a successful turn clears the flag, so /retry never replays a prompt whose
@@ -755,20 +749,15 @@ func (m *model) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 // handleInputSubmit runs a submitted line: a slash command directly, anything
 // else queued as a prompt. Slash commands are ignored while a turn is running.
 //
-// A prompt submitted mid-turn steers: it cancels the running turn and waits for
-// that turn's own done to start it (see steerPrompt). Typing is therefore never
-// blocked on the model, and "wait" is not the only thing a mid-turn Enter can
-// mean.
+// A prompt submitted mid-turn is queued behind the running turn and starts when
+// that turn ends (handleAgentDone). It never cancels the turn, so subagents and
+// tool calls in flight finish; Esc is the way to stop a turn.
 func (m *model) handleInputSubmit(msg InputSubmitMsg) (tea.Model, tea.Cmd, bool) {
 	if strings.HasPrefix(msg.Text, "/") {
 		if m.running {
 			return m, nil, true
 		}
 		model, cmd := m.handleSlashCommand(msg.Text)
-		return model, cmd, true
-	}
-	if m.running {
-		model, cmd := m.steerPrompt(msg.Text, msg.Mentions)
 		return model, cmd, true
 	}
 	model, cmd := m.enqueuePrompt(msg.Text, msg.Mentions)

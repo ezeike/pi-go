@@ -57,7 +57,7 @@ func isSubagentCardTool(tool string) bool {
 //     after its siblings and they are done. An older answered card with the
 //     same toolID (a provider reusing IDs such as call_0 across turns) is a
 //     different call and never hides a newer one.
-//  2. A user message follows it. A new turn (a steer or a queued prompt) began,
+//  2. A user message follows it. A new turn (a queued prompt) began,
 //     so the turn that spawned the card ended.
 //
 // A turn canceled with nothing after it has no later user message; that case
