@@ -79,7 +79,7 @@ func RenderSubagentPanel(in SubagentPanelRenderInput) string {
 			avail--
 		}
 		for i, h := range subagentBlockHeights(avail, shown) {
-			rows = append(rows, renderSubagentBlock(in.Messages[pending[i]], h, in.Width, header)...)
+			rows = append(rows, renderSubagentBlock(in.Messages[pending[i]], h, in.Width, header, dim)...)
 		}
 		if footer {
 			more := "+" + strconv.Itoa(len(pending)-shown) + " more"
@@ -95,18 +95,69 @@ func RenderSubagentPanel(in SubagentPanelRenderInput) string {
 }
 
 // renderSubagentBlock renders one subagent as height rows: its header, then
-// blank rows reserved for the event tail.
-func renderSubagentBlock(msg message, height, width int, header lipgloss.Style) []string {
+// the newest event-tail lines top-aligned beneath it, then blank padding.
+func renderSubagentBlock(msg message, height, width int, headerStyle, tailStyle lipgloss.Style) []string {
 	if height <= 0 {
 		return nil
 	}
 	rows := make([]string, 0, height)
-	rows = append(rows, subagentPanelRow(subagentHeaderText(msg), header, width))
+	rows = append(rows, subagentPanelRow(subagentHeaderText(msg), headerStyle, width))
+	for _, line := range subagentTailLines(msg.agentEvents, height-1) {
+		rows = append(rows, subagentPanelRow(line, tailStyle, width))
+	}
 	blank := padLine("", width)
 	for len(rows) < height {
 		rows = append(rows, blank)
 	}
 	return rows
+}
+
+// subagentTailLines returns the newest n rendered lines of the event stream,
+// oldest first, as plain unclipped text. It walks newest to oldest so older
+// events are never expanded once n lines are in hand; it never writes evs.
+func subagentTailLines(evs []agentEv, n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	renderable := renderableAgentEvents(evs)
+	var chunks [][]string // newest event first
+	count := 0
+	for i := len(renderable) - 1; i >= 0 && count < n; i-- {
+		lines := subagentEventLines(renderable[i])
+		chunks = append(chunks, lines)
+		count += len(lines)
+	}
+	out := make([]string, 0, count)
+	for i := len(chunks) - 1; i >= 0; i-- {
+		out = append(out, chunks[i]...)
+	}
+	return out[max(0, len(out)-n):]
+}
+
+// subagentEventLines renders one event as "kind: first line" followed by
+// two-space-indented continuation lines; blank lines are dropped.
+func subagentEventLines(ev agentEv) []string {
+	kind := ev.kind
+	if kind == "text_delta" {
+		kind = "text"
+	}
+	content := strings.ReplaceAll(ansi.Strip(ev.content), "\r\n", "\n")
+	var lines []string
+	for part := range strings.SplitSeq(content, "\n") {
+		part = strings.TrimRight(part, " \t\r")
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		if lines == nil {
+			lines = append(lines, kind+": "+part)
+			continue
+		}
+		lines = append(lines, "  "+part)
+	}
+	if lines == nil {
+		return []string{kind + ":"}
+	}
+	return lines
 }
 
 // subagentPanelRow lays out one panel row: a one-cell left indent, the text
