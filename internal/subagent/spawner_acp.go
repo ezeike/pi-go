@@ -10,6 +10,7 @@ import (
 	"github.com/dimetron/pi-go/internal/acp/client/claudecode"
 	"github.com/dimetron/pi-go/internal/acp/client/copilot"
 	"github.com/dimetron/pi-go/internal/acp/client/cursor"
+	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/acp/client/gemini"
 	"github.com/dimetron/pi-go/internal/notice"
 )
@@ -62,8 +63,8 @@ func acpPromptPreamble(agentName, task string) string {
 		agentName, task, acpCompletionSentinel, acpCompletionSentinel)
 }
 
-// dispatchACP starts an ACP-based subagent (claude, gemini, cursor, agy) and
-// returns a *Process whose event channel is fed by the runner's session,
+// dispatchACP starts an ACP-based subagent (claude, gemini, cursor, agy, or
+// Forge Controller). It returns a *Process whose event channel is fed by the runner's session,
 // translated into the orchestrator's Event format.
 //
 // pi is not invoked for ACP agents — the matching CLI binary is launched
@@ -73,9 +74,12 @@ func dispatchACP(ctx context.Context, opts SpawnOpts, agentName string) (*Proces
 		return nil, fmt.Errorf("prompt is required")
 	}
 
-	prompt := acpPromptPreamble(agentName, opts.Prompt)
-	if strings.TrimSpace(opts.Instruction) != "" {
-		prompt = opts.Instruction + "\n\n" + prompt
+	prompt := opts.Prompt
+	if agentName != "forge-controller" {
+		prompt = acpPromptPreamble(agentName, prompt)
+		if strings.TrimSpace(opts.Instruction) != "" {
+			prompt = opts.Instruction + "\n\n" + prompt
+		}
 	}
 
 	timeoutCfg := ResolveTimeout(opts.Timeout)
@@ -143,6 +147,13 @@ func startACPSession(ctx context.Context, agentName, prompt string, opts SpawnOp
 	case "agy":
 		r := agy.Runner{ExtraEnv: opts.Env}
 		return r.Start(ctx, agy.RunRequest{
+			Prompt: prompt,
+			CWD:    opts.WorkDir,
+			Env:    opts.Env,
+		})
+	case "forge-controller":
+		r := forgecontroller.Runner{ExtraEnv: opts.Env}
+		return r.Start(ctx, sharedacp.RunRequest{
 			Prompt: prompt,
 			CWD:    opts.WorkDir,
 			Env:    opts.Env,

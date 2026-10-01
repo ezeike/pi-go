@@ -236,6 +236,30 @@ func TestDispatchACP_WrapsPromptWithPreamble(t *testing.T) {
 	}
 }
 
+func TestDispatchACP_ForgeControllerPreservesCommandPrompt(t *testing.T) {
+	sess := newFakeACPSession()
+	var capturedPrompt string
+	prev := startACPSessionFn
+	startACPSessionFn = func(_ context.Context, _ string, prompt string, _ SpawnOpts) (acpSession, error) {
+		capturedPrompt = prompt
+		return sess, nil
+	}
+	t.Cleanup(func() { startACPSessionFn = prev })
+
+	proc, err := dispatchACP(context.Background(), SpawnOpts{Prompt: "/forge-status"}, "forge-controller")
+	if err != nil {
+		t.Fatalf("dispatchACP: %v", err)
+	}
+	t.Cleanup(func() {
+		sess.finish(sharedacp.RunResult{Status: sharedacp.StatusSuccess})
+		<-proc.done
+	})
+
+	if capturedPrompt != "/forge-status" {
+		t.Errorf("prompt = %q, want raw Forge command", capturedPrompt)
+	}
+}
+
 func TestDispatchACP_TranslatesEventsAndResult(t *testing.T) {
 	sess := newFakeACPSession()
 	withFakeACPRunner(t, sess)

@@ -99,7 +99,7 @@ func TestOrchestrator_CancelNotFound(t *testing.T) {
 }
 
 func TestIsACPAgent(t *testing.T) {
-	for _, name := range []string{"claude", "gemini", "cursor"} {
+	for _, name := range []string{"claude", "gemini", "cursor", "forge-controller"} {
 		if !isACPAgent(name) {
 			t.Errorf("isACPAgent(%q) = false, want true", name)
 		}
