@@ -989,7 +989,7 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// Only the chat panel is selectable. A press on the rail or in the sidebar
 	// starts nothing — and clears any highlight, the same as a click anywhere
 	// else would.
-	if mouse.X >= m.chatWidth() {
+	if off := m.chatXOffset(); mouse.X < off || mouse.X >= off+m.chatWidth() {
 		m.sel = selection{}
 		return m, nil
 	}
@@ -1079,11 +1079,11 @@ func (m *model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd)
 // offset is whatever is left over: height - frameRows. Deriving it beats
 // hardcoding it, because it is right for any amount of prior output.
 //
-// X needs no such translation — the frame starts at column 0 — but it is clamped
-// to the panel so a drag into the sidebar, or off the window entirely, pins to
-// the edge instead of sweeping the rail and sidebar into the selection.
+// X is translated too, by chatXOffset() (the subagent panel shifts the chat right),
+// so selection coordinates are chat-relative; it is clamped to the chat so a drag
+// into the panel, the sidebar or off the window pins to the edge, not the chrome.
 func (m *model) clampToChat(x, y int) (int, int) {
-	x = min(max(x, 0), max(0, m.chatWidth()-1))
+	x = min(max(x-m.chatXOffset(), 0), max(0, m.chatWidth()-1))
 
 	// Rows are clamped to the message viewport, so a drag that strays into the
 	// matrix rain above or the status bar and prompt below pins to the nearest
