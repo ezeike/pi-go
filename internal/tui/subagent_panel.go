@@ -25,11 +25,16 @@ const maxSubagentBlocks = 4
 
 // SubagentPanelRenderInput is everything RenderSubagentPanel reads. The panel is
 // a pure function of it, derived fresh every frame from existing model state.
+// It shows only live subagents: see [pendingSubagentCards] for which cards
+// count, and Idle for the turn-ended case.
 type SubagentPanelRenderInput struct {
 	Width    int
 	Height   int
 	Palette  Palette
 	Messages []message
+	// Idle is true while no turn is running. Nothing is live then, so the panel
+	// shows the placeholder whatever the cards say.
+	Idle bool
 }
 
 // isSubagentCardTool reports whether a tool message is a subagent card.
@@ -37,15 +42,39 @@ func isSubagentCardTool(tool string) bool {
 	return tool == "agent" || tool == "subagent" || tool == "a2a"
 }
 
-// pendingSubagentCards returns the indices of the subagent cards still waiting
-// on a result, newest first. A later index is the more recent card; no
-// timestamp is involved. It reads messages and never writes them.
+// pendingSubagentCards returns the indices of the live subagent cards, newest
+// first. A later index is the more recent card; no timestamp is involved. It
+// reads messages and never writes them.
+//
+// A card is live when it is still waiting on a result and neither rule below
+// retires it:
+//  1. Its toolID is shared with a card that has a result. A tasks[]/chain[] call
+//     fans out into N cards under one toolID, but its single result fills only
+//     one of them, so the call is answered and its siblings are done.
+//  2. A user message follows it. A new turn (a steer or a queued prompt) began,
+//     so the turn that spawned the card ended.
+//
+// A turn canceled with nothing after it has no later user message; that case
+// is [SubagentPanelRenderInput.Idle].
 func pendingSubagentCards(messages []message) []int {
+	answered := make(map[string]bool)
+	for i := range messages {
+		if isSubagentCardTool(messages[i].tool) && messages[i].toolID != "" && !messages[i].toolPending() {
+			answered[messages[i].toolID] = true
+		}
+	}
 	var out []int
 	for i := len(messages) - 1; i >= 0; i-- {
-		if isSubagentCardTool(messages[i].tool) && messages[i].toolPending() {
-			out = append(out, i)
+		if messages[i].role == "user" {
+			break
 		}
+		if !isSubagentCardTool(messages[i].tool) || !messages[i].toolPending() {
+			continue
+		}
+		if id := messages[i].toolID; id != "" && answered[id] {
+			continue
+		}
+		out = append(out, i)
 	}
 	return out
 }
@@ -68,7 +97,10 @@ func RenderSubagentPanel(in SubagentPanelRenderInput) string {
 	dim := lipgloss.NewStyle().Foreground(pal.Dim)
 
 	rows := make([]string, 0, in.Height)
-	pending := pendingSubagentCards(in.Messages)
+	var pending []int
+	if !in.Idle {
+		pending = pendingSubagentCards(in.Messages)
+	}
 	if len(pending) == 0 {
 		rows = append(rows, subagentPanelRow(subagentPanelPlaceholder, dim, in.Width))
 	} else {
@@ -223,7 +255,8 @@ func subagentHeaderText(msg message) string {
 }
 
 // subagentPanelInput derives the panel's input fresh from the model every frame;
-// the message slice is passed as is, not copied.
+// the message slice is passed as is, not copied. Idle is true while no turn is
+// running, so a turn canceled mid-subagent leaves the placeholder.
 func (m *model) subagentPanelInput(width, height int) SubagentPanelRenderInput {
-	return SubagentPanelRenderInput{Width: width, Height: height, Palette: m.palette, Messages: m.chatModel.Messages}
+	return SubagentPanelRenderInput{Width: width, Height: height, Palette: m.palette, Messages: m.chatModel.Messages, Idle: !m.running}
 }

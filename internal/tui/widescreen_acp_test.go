@@ -11,6 +11,7 @@ func TestWidescreenPanel_ACPEventSequence(t *testing.T) {
 	m := historyModel(t, "first")
 	m.width, m.height = 200, 40
 	m.applyResize()
+	m.running = true // the panel shows only a running turn's subagents
 	m.chatModel.Messages = append(m.chatModel.Messages,
 		message{role: "user", content: "plan the migration"},
 		message{role: "tool", tool: "subagent", agentType: "forge-controller", agentTitle: "Plan the migration"})

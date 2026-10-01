@@ -95,6 +95,7 @@ func TestWidescreenFrame_PendingCardAppearsInPanelColumns(t *testing.T) {
 	m := historyModel(t, "first")
 	m.width, m.height = 200, 40
 	m.applyResize()
+	m.running = true // the panel shows only a running turn's subagents
 	m.chatModel.Messages = append(m.chatModel.Messages,
 		panelCard("subagent", "pi", "Analyze internal/subagent",
 			agentEv{kind: "tool_call", content: "read orchestrator"}))
