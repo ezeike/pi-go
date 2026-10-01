@@ -998,7 +998,7 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// Clicking inside a highlight copies it again, rather than throwing it away.
 	// The highlight is the affordance: what is lit up is what a click takes.
 	if m.sel.contains(x, y, m.chatWidth()) {
-		return m, m.copyAndFlash(selectedText(m.lastFrame, m.sel, m.chatWidth()))
+		return m, m.copyAndFlash(selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset()))
 	}
 
 	m.sel = selection{dragging: true, anchorX: x, anchorY: y, cursorX: x, cursorY: y}
@@ -1064,7 +1064,7 @@ func (m *model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd)
 		m.sel = selection{} // a plain click, not a drag: just clear
 		return m, nil
 	}
-	return m, m.copyAndFlash(selectedText(m.lastFrame, m.sel, m.chatWidth()))
+	return m, m.copyAndFlash(selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset()))
 }
 
 // clampToChat converts a mouse position into a chat-panel cell.
@@ -1664,7 +1664,7 @@ func (m *model) View() tea.View {
 	m.frameRows = strings.Count(final, "\n") + 1
 	m.topSectionRowsVal = panelRows
 	m.msgTop, m.msgBottom = msgStart, msgStart+msgRows
-	final = highlight(final, m.sel, m.chatWidth(), m.width)
+	final = highlight(final, m.sel, m.chatWidth(), m.width, m.chatXOffset())
 
 	v := tea.NewView(final)
 	// The renderer diffs WindowTitle against the last frame and only emits the

@@ -67,7 +67,7 @@ func TestDragSelectsAndCopiesOnRelease(t *testing.T) {
 		t.Error("still dragging after release")
 	}
 
-	got := selectedText(m.lastFrame, m.sel, m.chatWidth())
+	got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset())
 	if got != "SELECT-ME-ONE" {
 		t.Errorf("copied %q, want %q", got, "SELECT-ME-ONE")
 	}
@@ -85,7 +85,7 @@ func TestDragAcrossRowsSelectsWholeLines(t *testing.T) {
 	}
 	m = drag(t, m, c1, r1, c2+len("SELECT-ME-TWO")-1, r2)
 
-	got := selectedText(m.lastFrame, m.sel, m.chatWidth())
+	got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset())
 	if !strings.Contains(got, "SELECT-ME-ONE") || !strings.Contains(got, "SELECT-ME-TWO") {
 		t.Fatalf("multi-row selection = %q, want both messages", got)
 	}
@@ -104,8 +104,8 @@ func TestDragBackwardsSelectsSameSpan(t *testing.T) {
 	forward := drag(t, selectionModel(t), col, row, end, row)
 	backward := drag(t, m, end, row, col, row)
 
-	f := selectedText(forward.lastFrame, forward.sel, forward.chatWidth())
-	b := selectedText(backward.lastFrame, backward.sel, backward.chatWidth())
+	f := selectedText(forward.lastFrame, forward.sel, forward.chatWidth(), forward.chatXOffset())
+	b := selectedText(backward.lastFrame, backward.sel, backward.chatWidth(), backward.chatXOffset())
 	if f != b {
 		t.Errorf("backward drag copied %q, forward copied %q — they must match", b, f)
 	}
@@ -137,7 +137,7 @@ func TestReleaseUsesItsOwnCoordinate(t *testing.T) {
 	if m.sel.cursorY != r2 {
 		t.Errorf("released on frame row %d but the selection ends on row %d", r2, m.sel.cursorY)
 	}
-	got := selectedText(m.lastFrame, m.sel, m.chatWidth())
+	got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset())
 	if !strings.Contains(got, "SELECT-ME-TWO") {
 		t.Errorf("released on the SELECT-ME-TWO row but copied %q", got)
 	}
@@ -170,7 +170,7 @@ func TestHighlightPreservesFrameWidth(t *testing.T) {
 	row, col := findRow(t, m, "SELECT-ME-ONE")
 
 	sel := selection{present: true, anchorX: col, anchorY: row, cursorX: col + 8, cursorY: row + 2}
-	out := highlight(frame, sel, m.chatWidth(), m.width)
+	out := highlight(frame, sel, m.chatWidth(), m.width, m.chatXOffset())
 
 	for i, line := range strings.Split(out, "\n") {
 		if got := ansi.StringWidth(line); got != m.width {
@@ -191,7 +191,7 @@ func TestSelectedTextTrimsPadding(t *testing.T) {
 
 	// Select the entire row, padding included.
 	sel := selection{present: true, anchorX: 0, anchorY: row, cursorX: m.chatWidth() - 1, cursorY: row}
-	got := selectedText(m.lastFrame, sel, m.chatWidth())
+	got := selectedText(m.lastFrame, sel, m.chatWidth(), m.chatXOffset())
 
 	if got != strings.TrimRight(got, " ") {
 		t.Errorf("copied text keeps trailing padding: %q", got)
@@ -222,7 +222,7 @@ func TestSelectionStaysInsideTheChatPanel(t *testing.T) {
 		t.Errorf("selection cursor at column %d, past the chat panel (%d)", got, m.chatWidth())
 	}
 
-	got := selectedText(m.lastFrame, m.sel, m.chatWidth())
+	got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset())
 	for _, line := range strings.Split(got, "\n") {
 		if w := ansi.StringWidth(line); w > m.chatWidth() {
 			t.Fatalf("copied a %d-wide line, wider than the chat panel (%d): %q",
@@ -266,7 +266,7 @@ func TestSelectionFollowsMouseInFullHeightFrame(t *testing.T) {
 	next, _ = m.Update(tea.MouseReleaseMsg(tea.Mouse{X: col + len("SELECT-ME-ONE") - 1, Y: row, Button: tea.MouseLeft}))
 	m = next.(*model)
 
-	if got := selectedText(m.lastFrame, m.sel, m.chatWidth()); got != "SELECT-ME-ONE" {
+	if got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset()); got != "SELECT-ME-ONE" {
 		t.Errorf("copied %q, want the text under the mouse", got)
 	}
 }
@@ -292,7 +292,7 @@ func TestSelectionExcludesChromeRows(t *testing.T) {
 	}
 
 	// The matrix rain uses braille; the status bar carries the model name.
-	got := selectedText(m.lastFrame, m.sel, m.chatWidth())
+	got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset())
 	for _, r := range got {
 		if r >= '⠀' && r <= '⣿' {
 			t.Fatalf("matrix rain was copied: %q", got)
@@ -441,7 +441,7 @@ func TestPressInSidebarDoesNotSelect(t *testing.T) {
 	if m.sel.present || m.sel.dragging {
 		t.Error("dragging inside the sidebar started a selection")
 	}
-	if got := selectedText(m.lastFrame, m.sel, m.chatWidth()); got != "" {
+	if got := selectedText(m.lastFrame, m.sel, m.chatWidth(), m.chatXOffset()); got != "" {
 		t.Errorf("copied %q from a sidebar drag, want nothing", got)
 	}
 }

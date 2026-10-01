@@ -95,7 +95,10 @@ var selectionStyle = lipgloss.NewStyle().Reverse(true)
 // of the row being rewritten. They differ, and conflating them would either
 // truncate the rail and sidebar off every highlighted row or let the selection
 // swallow them.
-func highlight(frame string, sel selection, selWidth, frameWidth int) string {
+//
+// xOffset is the frame column the chat starts at. lo and hi stay chat-relative,
+// so the panel to the left and the rail and sidebar to the right are kept intact.
+func highlight(frame string, sel selection, selWidth, frameWidth, xOffset int) string {
 	if sel.empty() {
 		return frame
 	}
@@ -106,9 +109,9 @@ func highlight(frame string, sel selection, selWidth, frameWidth int) string {
 		if !ok {
 			continue
 		}
-		left := ansi.Cut(line, 0, lo)
-		mid := ansi.Strip(ansi.Cut(line, lo, hi))
-		right := ansi.Cut(line, hi, frameWidth) // keeps the rail and sidebar intact
+		left := ansi.Cut(line, 0, lo+xOffset)
+		mid := ansi.Strip(ansi.Cut(line, lo+xOffset, hi+xOffset))
+		right := ansi.Cut(line, hi+xOffset, frameWidth) // keeps the rail and sidebar intact
 		lines[row] = left + selectionStyle.Render(mid) + right
 	}
 	return strings.Join(lines, "\n")
@@ -117,7 +120,8 @@ func highlight(frame string, sel selection, selWidth, frameWidth int) string {
 // selectedText extracts the selection from the frame as plain text.
 // Trailing padding is trimmed per line — the frame pads every row out to the
 // full width, and nobody wants to paste a block of trailing spaces.
-func selectedText(frame string, sel selection, selWidth int) string {
+// xOffset is the frame column the chat starts at; the selection is chat-relative.
+func selectedText(frame string, sel selection, selWidth, xOffset int) string {
 	if sel.empty() {
 		return ""
 	}
@@ -128,7 +132,7 @@ func selectedText(frame string, sel selection, selWidth int) string {
 		if !ok {
 			continue
 		}
-		out = append(out, strings.TrimRight(ansi.Strip(ansi.Cut(line, lo, hi)), " "))
+		out = append(out, strings.TrimRight(ansi.Strip(ansi.Cut(line, lo+xOffset, hi+xOffset)), " "))
 	}
 	return strings.Join(out, "\n")
 }
