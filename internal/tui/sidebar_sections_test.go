@@ -250,6 +250,19 @@ func TestSidebarAgentLines(t *testing.T) {
 	}
 }
 
+func TestSidebarAgentLines_IncludesPersistentForgeController(t *testing.T) {
+	lines := sidebarAgentLines(SidebarRenderInput{
+		Messages: []message{{role: "tool", tool: "forge_controller", content: "status"}},
+	}, 27, testSidebarStyles())
+	got := plain(lines)
+	if !strings.Contains(got, "forge-controller") {
+		t.Errorf("controller missing from sidebar: %q", got)
+	}
+	if !strings.Contains(got, "⚡") {
+		t.Errorf("controller should render as live: %q", got)
+	}
+}
+
 func TestAgentDisplayNamesFallsBackToAgent(t *testing.T) {
 	t.Parallel()
 	agents := []subagent.AgentStatus{{AgentID: "x", Type: "", Status: "running"}}

@@ -985,6 +985,27 @@ func TestAgentToolCallMsg_NonAgentToolNoAgentFields(t *testing.T) {
 	}
 }
 
+func TestAgentToolCallMsg_ForgeControllerCreatesAgentCard(t *testing.T) {
+	m := &model{
+		chatModel: ChatModel{Messages: make([]message, 0)},
+		running:   true,
+		agentCh:   make(chan agentMsg, 64),
+	}
+
+	newM, _ := m.Update(agentToolCallMsg{
+		id:   "forge-1",
+		name: "forge_controller",
+		args: map[string]any{"command": "resume_task", "task_id": "TASK-123"},
+	})
+	card := newM.(*model).chatModel.Messages[0]
+	if card.agentType != "forge-controller" {
+		t.Errorf("agentType = %q, want forge-controller", card.agentType)
+	}
+	if card.agentTitle != "resume task TASK-123" {
+		t.Errorf("agentTitle = %q, want resume task TASK-123", card.agentTitle)
+	}
+}
+
 // --- waitForSubEvent ---
 
 func TestWaitForSubEvent_NilChannel(t *testing.T) {

@@ -64,6 +64,14 @@ func TestPendingSubagentCards_NoneAndEmpty(t *testing.T) {
 	}
 }
 
+func TestPendingSubagentCards_IncludesForgeController(t *testing.T) {
+	controller := panelCard("forge_controller", "forge-controller", "status")
+	got := pendingSubagentCards([]message{controller})
+	if !reflect.DeepEqual(got, []int{0}) {
+		t.Fatalf("pendingSubagentCards = %v, want controller card", got)
+	}
+}
+
 func TestPendingSubagentCards_DoesNotMutate(t *testing.T) {
 	build := func() []message {
 		return []message{

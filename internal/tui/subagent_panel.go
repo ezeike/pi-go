@@ -40,9 +40,12 @@ type SubagentPanelRenderInput struct {
 	TurnStart int
 }
 
-// isSubagentCardTool reports whether a tool message is a subagent card.
+// isSubagentCardTool reports whether a tool message is shown as an agent card.
+// Forge Controller is a persistent ACP session rather than an orchestrated
+// subagent, but it has the same user-facing lifecycle: it is live while a
+// command is in flight and belongs alongside agents in the TUI.
 func isSubagentCardTool(tool string) bool {
-	return tool == "agent" || tool == "subagent" || tool == "a2a"
+	return tool == "agent" || tool == "subagent" || tool == "a2a" || tool == "forge_controller"
 }
 
 // pendingSubagentCards returns the indices of the live subagent cards, newest

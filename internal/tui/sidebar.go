@@ -541,12 +541,24 @@ func sidebarActivityLines(in SidebarRenderInput, st sidebarStyles) []string {
 	return []string{st.dim.Render("  thinking...")}
 }
 
-// sidebarAgentLines lists spawned subagents, running ones first.
+// sidebarAgentLines lists spawned subagents and the persistent Forge Controller
+// session, running ones first. The controller is not owned by Orchestrator, so
+// its presence is recovered from the controller tool cards in the transcript.
 func sidebarAgentLines(in SidebarRenderInput, innerW int, st sidebarStyles) []string {
-	if in.Orchestrator == nil {
-		return nil
+	var agents []subagent.AgentStatus
+	if in.Orchestrator != nil {
+		agents = in.Orchestrator.List()
 	}
-	agents := in.Orchestrator.List()
+	if forgeControllerActive(in.Messages) {
+		agents = append(agents, subagent.AgentStatus{
+			AgentID: "forge-controller-session",
+			Type:    "forge-controller",
+			// The ACP process remains alive between commands for the rest of
+			// the pi session, so this is intentionally running after a command
+			// returns successfully.
+			Status: "running",
+		})
+	}
 	if len(agents) == 0 {
 		return nil
 	}
@@ -558,6 +570,19 @@ func sidebarAgentLines(in SidebarRenderInput, innerW int, st sidebarStyles) []st
 		lines = append(lines, agentRow(a.Status, names[i], st))
 	}
 	return append(lines, "")
+}
+
+// forgeControllerActive reports whether this pi session has started its
+// project-scoped controller. A controller tool card is created before the ACP
+// session starts, so it also keeps the sidebar accurate while startup is in
+// progress or when startup fails.
+func forgeControllerActive(messages []message) bool {
+	for _, msg := range messages {
+		if msg.role == "tool" && msg.tool == "forge_controller" {
+			return true
+		}
+	}
+	return false
 }
 
 // sortAgentsForDisplay orders agents by status (running first), then by start
