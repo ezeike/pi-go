@@ -48,19 +48,28 @@ func isSubagentCardTool(tool string) bool {
 //
 // A card is live when it is still waiting on a result and neither rule below
 // retires it:
-//  1. Its toolID is shared with a card that has a result. A tasks[]/chain[] call
-//     fans out into N cards under one toolID, but its single result fills only
-//     one of them, so the call is answered and its siblings are done.
+//  1. Its toolID is shared with a card that has a result at a higher index. A
+//     tasks[]/chain[] call fans out into N cards under one toolID, but its
+//     single result fills the newest pending one, so the answered card sits
+//     after its siblings and they are done. An older answered card with the
+//     same toolID (a provider reusing IDs such as call_0 across turns) is a
+//     different call and never hides a newer one.
 //  2. A user message follows it. A new turn (a steer or a queued prompt) began,
 //     so the turn that spawned the card ended.
 //
 // A turn canceled with nothing after it has no later user message; that case
 // is [SubagentPanelRenderInput.Idle].
+//
+// Known limitation: a turn that starts without a user message (/run in run.go,
+// the create_skill agent) after a canceled subagent turn makes Idle false again,
+// so the canceled turn's cards reappear until a user message follows. Fixing it
+// needs a turn-start marker, which is new state and out of scope (D6,
+// renderer-side only).
 func pendingSubagentCards(messages []message) []int {
-	answered := make(map[string]bool)
+	answeredAt := make(map[string]int) // toolID -> highest index of an answered card
 	for i := range messages {
 		if isSubagentCardTool(messages[i].tool) && messages[i].toolID != "" && !messages[i].toolPending() {
-			answered[messages[i].toolID] = true
+			answeredAt[messages[i].toolID] = i
 		}
 	}
 	var out []int
@@ -71,7 +80,7 @@ func pendingSubagentCards(messages []message) []int {
 		if !isSubagentCardTool(messages[i].tool) || !messages[i].toolPending() {
 			continue
 		}
-		if id := messages[i].toolID; id != "" && answered[id] {
+		if at, ok := answeredAt[messages[i].toolID]; ok && messages[i].toolID != "" && at > i {
 			continue
 		}
 		out = append(out, i)

@@ -135,6 +135,32 @@ func TestStalePanel_FollowUpPromptHidesStaleCard(t *testing.T) {
 	wantPlaceholder(t, m, "alpha-job")
 }
 
+func TestStalePanel_ReusedToolIDInLaterTurnStaysLive(t *testing.T) {
+	m := stalePanelModel(t)
+	m = updateWith(t, m, subagentCall("call_0", "tasks", "old-job"))
+	m = updateWith(t, m, agentToolResultMsg{id: "call_0", name: "subagent", content: "done"})
+	m.chatModel.Messages = append(m.chatModel.Messages, message{role: "user", content: "again"})
+	m = updateWith(t, m, subagentCall("call_0", "tasks", "new-job-a", "new-job-b"))
+
+	text := panelText(t, m)
+	for _, title := range []string{"new-job-a", "new-job-b"} {
+		if !strings.Contains(text, title) {
+			t.Errorf("an older answered call_0 hid the live card %q:\n%s", title, text)
+		}
+	}
+	if strings.Contains(text, "old-job") {
+		t.Errorf("panel shows the answered turn-1 card:\n%s", text)
+	}
+}
+
+func TestPendingSubagentCards_OlderAnsweredCardDoesNotRetireNewerCall(t *testing.T) {
+	old := finishedCard(message{role: "tool", tool: "subagent", toolID: "call_0"})
+	live := message{role: "tool", tool: "subagent", toolID: "call_0"}
+	if got, want := pendingSubagentCards([]message{old, live}), []int{1}; !slices.Equal(got, want) {
+		t.Errorf("older answered card retired a newer call: got %v, want %v", got, want)
+	}
+}
+
 func TestPendingSubagentCards_AnsweredSiblingsAreNotLive(t *testing.T) {
 	a := message{role: "tool", tool: "subagent", toolID: "x", agentTitle: "a"}
 	b := message{role: "tool", tool: "subagent", toolID: "x", agentTitle: "b"}
@@ -144,8 +170,9 @@ func TestPendingSubagentCards_AnsweredSiblingsAreNotLive(t *testing.T) {
 	if got := pendingSubagentCards([]message{a, b, done}); len(got) != 0 {
 		t.Errorf("siblings of an answered call = %v, want none", got)
 	}
-	if got := pendingSubagentCards([]message{done, a, b}); len(got) != 0 {
-		t.Errorf("answered card first = %v, want none", got)
+	// Cards after an answered card with the same toolID are a newer call.
+	if got, want := pendingSubagentCards([]message{done, a, b}), []int{2, 1}; !slices.Equal(got, want) {
+		t.Errorf("answered card first = %v, want %v", got, want)
 	}
 	if got, want := pendingSubagentCards([]message{a, b, other}), []int{2, 1, 0}; !slices.Equal(got, want) {
 		t.Errorf("unanswered call = %v, want %v", got, want)
