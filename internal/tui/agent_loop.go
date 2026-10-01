@@ -1012,7 +1012,7 @@ func (m *model) submitPrompt(text string, mentions []string) (tea.Model, tea.Cmd
 	m.chatModel.Messages = append(m.chatModel.Messages, message{role: "assistant", content: ""})
 	m.chatModel.Streaming = ""
 	m.chatModel.Thinking = ""
-	m.running = true
+	m.beginTurn()
 	m.chatModel.Scroll = 0
 	if m.face != nil {
 		m.face.SetMood(MoodThinking)

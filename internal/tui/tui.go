@@ -76,6 +76,7 @@ type model struct {
 
 	// Agent state.
 	running        bool
+	turnStart      int                // len(Messages) when the current turn began; earlier subagent cards are stale
 	mode           string             // "chat" or "plan" — shown in status bar
 	agentCh        chan agentMsg      // channel for receiving agent events
 	agentCancel    context.CancelFunc // cancels the active agent response without quitting the TUI
@@ -2813,4 +2814,11 @@ func (m *model) renderBranchPopup() string {
 	}
 
 	return style.Render(b.String())
+}
+
+// beginTurn marks the start of an agent turn: the model is running and any
+// subagent card already in the transcript belongs to an earlier turn.
+func (m *model) beginTurn() {
+	m.turnStart = len(m.chatModel.Messages)
+	m.running = true
 }

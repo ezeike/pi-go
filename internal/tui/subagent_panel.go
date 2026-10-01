@@ -35,6 +35,9 @@ type SubagentPanelRenderInput struct {
 	// Idle is true while no turn is running. Nothing is live then, so the panel
 	// shows the placeholder whatever the cards say.
 	Idle bool
+	// TurnStart is the index of the first message of the current turn. Cards
+	// before it belong to an earlier turn and are never live.
+	TurnStart int
 }
 
 // isSubagentCardTool reports whether a tool message is a subagent card.
@@ -60,12 +63,17 @@ func isSubagentCardTool(tool string) bool {
 // A turn canceled with nothing after it has no later user message; that case
 // is [SubagentPanelRenderInput.Idle].
 //
-// Known limitation: a turn that starts without a user message (/run in run.go,
-// the create_skill agent) after a canceled subagent turn makes Idle false again,
-// so the canceled turn's cards reappear until a user message follows. Fixing it
-// needs a turn-start marker, which is new state and out of scope (D6,
-// renderer-side only).
+// A turn that starts without a user message (/run in run.go, the create_skill
+// agent) is covered by the turn-start marker: [model.beginTurn] records where
+// the turn's messages begin and [pendingSubagentCardsFrom] ignores earlier cards.
 func pendingSubagentCards(messages []message) []int {
+	return pendingSubagentCardsFrom(messages, 0)
+}
+
+// pendingSubagentCardsFrom is [pendingSubagentCards] limited to cards at index
+// from or later: a card before from belongs to a turn that already ended (see
+// [model.beginTurn]) and is never live.
+func pendingSubagentCardsFrom(messages []message, from int) []int {
 	answeredAt := make(map[string]int) // toolID -> highest index of an answered card
 	for i := range messages {
 		if isSubagentCardTool(messages[i].tool) && messages[i].toolID != "" && !messages[i].toolPending() {
@@ -74,7 +82,7 @@ func pendingSubagentCards(messages []message) []int {
 	}
 	var out []int
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].role == "user" {
+		if messages[i].role == "user" || i < from {
 			break
 		}
 		if !isSubagentCardTool(messages[i].tool) || !messages[i].toolPending() {
@@ -108,7 +116,7 @@ func RenderSubagentPanel(in SubagentPanelRenderInput) string {
 	rows := make([]string, 0, in.Height)
 	var pending []int
 	if !in.Idle {
-		pending = pendingSubagentCards(in.Messages)
+		pending = pendingSubagentCardsFrom(in.Messages, in.TurnStart)
 	}
 	if len(pending) == 0 {
 		rows = append(rows, subagentPanelRow(subagentPanelPlaceholder, dim, in.Width))
@@ -267,5 +275,5 @@ func subagentHeaderText(msg message) string {
 // the message slice is passed as is, not copied. Idle is true while no turn is
 // running, so a turn canceled mid-subagent leaves the placeholder.
 func (m *model) subagentPanelInput(width, height int) SubagentPanelRenderInput {
-	return SubagentPanelRenderInput{Width: width, Height: height, Palette: m.palette, Messages: m.chatModel.Messages, Idle: !m.running}
+	return SubagentPanelRenderInput{Width: width, Height: height, Palette: m.palette, Messages: m.chatModel.Messages, Idle: !m.running, TurnStart: m.turnStart}
 }

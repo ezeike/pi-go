@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -226,6 +228,44 @@ func TestSubagentPanelInput_IdleMirrorsRunning(t *testing.T) {
 		m.running = running
 		if got := m.subagentPanelInput(SubagentPanelWidth, 10).Idle; got != !running {
 			t.Errorf("running=%v: Idle = %v, want %v", running, got, !running)
+		}
+	}
+}
+
+// A turn that starts without a user message (/run, create_skill) after a
+// canceled subagent turn must not bring the canceled turn's cards back.
+func TestStalePanel_TurnWithoutUserMessageDoesNotRevive(t *testing.T) {
+	m := stalePanelModel(t)
+	m.beginTurn()
+	m = updateWith(t, m, subagentCall("c1", "tasks", "revive-me-a", "revive-me-b"))
+	m = updateWith(t, m, agentDoneMsg{err: context.Canceled})
+	wantPlaceholder(t, m, "revive-me-a", "revive-me-b")
+
+	m.beginTurn() // what /run does: no user message is appended
+	wantPlaceholder(t, m, "revive-me-a", "revive-me-b")
+
+	m = updateWith(t, m, subagentCall("c2", "tasks", "fresh-card"))
+	if text := panelText(t, m); !strings.Contains(text, "fresh-card") {
+		t.Errorf("a card spawned in the new turn is missing:\n%s", text)
+	}
+}
+
+// Every turn start goes through beginTurn so the marker cannot be skipped.
+func TestBeginTurn_IsTheOnlyRunningSetter(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f != "tui.go" && strings.Contains(string(src), "m.running = true") {
+			t.Errorf("%s sets m.running = true directly; use m.beginTurn()", f)
 		}
 	}
 }
