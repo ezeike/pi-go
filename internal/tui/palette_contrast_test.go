@@ -176,6 +176,23 @@ func TestControlRoleIsLegibleOnBothBackgrounds(t *testing.T) {
 	}
 }
 
+func TestSearchPopupSelectedTextMeetsWCAGAA(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		p    Palette
+	}{
+		{"light commands", lightPalette},
+		{"dark commands", darkPalette},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := contrastRatio(tc.p.Background, tc.p.Cyan); got < 4.5 {
+				t.Errorf("selected command text %s on cyan %s = %.2f:1, want >= 4.5:1",
+					colorString(tc.p.Background), colorString(tc.p.Cyan), got)
+			}
+		})
+	}
+}
+
 func TestPaletteForSetsIsLight(t *testing.T) {
 	if !paletteFor(Theme{ThemeType: "light"}).IsLight {
 		t.Error("light theme resolved to a palette with IsLight false")

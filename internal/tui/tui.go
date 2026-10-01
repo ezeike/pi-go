@@ -2626,7 +2626,13 @@ func (m *model) searchPopupStyles(mode searchMode, width int) searchPopupStyleSe
 		Width(width)
 	st.headerStyle = st.headerStyle.Foreground(m.palette.Subtext).Width(width)
 	st.searchStyle = st.searchStyle.Foreground(m.palette.Dim)
-	st.selectedItemStyle = st.selectedItemStyle.Background(accent)
+	// A selected row needs an explicit foreground: the popup's inherited
+	// Subtext color becomes difficult to read on the bright command accent.
+	// Background provides the opposing high-contrast tone in both palettes.
+	st.selectedItemStyle = st.selectedItemStyle.
+		Background(accent).
+		Foreground(m.palette.Background).
+		Bold(true)
 	return st
 }
 
