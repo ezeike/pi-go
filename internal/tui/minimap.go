@@ -379,3 +379,53 @@ func joinPanelSidebar(left, sidebar string, leftWidth, sidebarWidth int) string 
 	}
 	return strings.Join(out, "\n")
 }
+
+// panelColumn is one column of the top section: its rows and the exact number
+// of cells it owns.
+type panelColumn struct {
+	content string
+	width   int
+}
+
+// joinPanels lays columns side by side, one row at a time, with every row of
+// every column clamped to the cells that column owns. It generalizes
+// joinPanelSidebar from two columns to any number.
+//
+// lipgloss.JoinHorizontal sizes a block to its widest row and starts the next
+// block after it, so a single row that renders wider than its column — one
+// stray control character is enough — moves every column to its right on
+// *every* row and pushes the last one off the screen. Clamping each row here
+// means every column always starts at the same cell and keeps all of its
+// columns, whatever the chat put on the row. A column with width <= 0 owns no
+// cells and is skipped; the result has as many rows as the tallest column.
+func joinPanels(cols ...panelColumn) string {
+	type column struct {
+		rows  []string
+		width int
+	}
+	live := make([]column, 0, len(cols))
+	height := 0
+	for _, c := range cols {
+		if c.width <= 0 {
+			continue
+		}
+		rows := strings.Split(c.content, "\n")
+		height = max(height, len(rows))
+		live = append(live, column{rows: rows, width: c.width})
+	}
+
+	out := make([]string, height)
+	var b strings.Builder
+	for i := range out {
+		b.Reset()
+		for _, c := range live {
+			var row string
+			if i < len(c.rows) {
+				row = c.rows[i]
+			}
+			b.WriteString(padLine(row, c.width))
+		}
+		out[i] = b.String()
+	}
+	return strings.Join(out, "\n")
+}
