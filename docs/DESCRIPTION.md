@@ -223,7 +223,8 @@ Agent Types:
 ├── discovery        → agent capability enumeration (smol model)
 ├── claude           → ACP bridge to Claude Code CLI
 ├── cursor           → ACP bridge to Cursor CLI
-└── gemini           → ACP bridge to Gemini CLI
+├── gemini           → ACP bridge to Gemini CLI
+└── forge-controller → ACP bridge to Forge Controller commands
 ```
 
 **Execution Flow:**

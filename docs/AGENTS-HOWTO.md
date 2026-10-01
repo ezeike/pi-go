@@ -322,6 +322,7 @@ These ship with the binary and are always available:
 | `claude` | — | No | ACP bridge to Claude Code CLI |
 | `cursor` | — | No | ACP bridge to Cursor CLI |
 | `gemini` | — | No | ACP bridge to Gemini CLI |
+| `forge-controller` | — | No | ACP bridge to Forge Controller commands |
 
 ### Custom Agent Definitions
 

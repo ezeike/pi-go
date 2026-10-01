@@ -76,11 +76,12 @@ type Orchestrator struct {
 // adapters; their event streams are tee'd to the session's acp.jsonl when an
 // ACP log path is configured on the orchestrator.
 var acpAgentNames = map[string]struct{}{
-	"claude":  {},
-	"gemini":  {},
-	"cursor":  {},
-	"copilot": {},
-	"agy":     {},
+	"claude":           {},
+	"gemini":           {},
+	"cursor":           {},
+	"copilot":          {},
+	"agy":              {},
+	"forge-controller": {},
 }
 
 // isACPAgent reports whether the named agent is an ACP subprocess adapter.
