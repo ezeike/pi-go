@@ -1512,8 +1512,35 @@ func (m *model) handleAgentToolCall(msg agentToolCallMsg) (tea.Model, tea.Cmd) {
 		m.chatModel.Messages = append(m.chatModel.Messages, subMsgs...)
 		return m, waitForAgent(m.agentCh)
 	}
+	if msg.name == "forge_controller" {
+		// Forge Controller is a persistent ACP session, not an orchestrated
+		// child process. Give its calls the same card shape anyway so the live
+		// panel and transcript make its activity visible.
+		newMsg.agentType = "forge-controller"
+		newMsg.agentTitle = forgeControllerTitle(msg.args)
+		m.chatModel.Messages = append(m.chatModel.Messages, newMsg)
+		return m, waitForAgent(m.agentCh)
+	}
 	m.chatModel.Messages = append(m.chatModel.Messages, newMsg)
 	return m, waitForAgent(m.agentCh)
+}
+
+// forgeControllerTitle is the concise operation shown on a controller card.
+// Keep it derived from the structured tool arguments rather than its rendered
+// tool summary, which is JSON and too noisy for the narrow live panel.
+func forgeControllerTitle(args map[string]any) string {
+	command, _ := args["command"].(string)
+	switch command {
+	case "pause", "resume":
+		if component, _ := args["component"].(string); component != "" {
+			return command + " " + component
+		}
+	case "resume_task":
+		if taskID, _ := args["task_id"].(string); taskID != "" {
+			return "resume task " + taskID
+		}
+	}
+	return command
 }
 
 // splitSubagentCards fans a single subagent tool call out into one visual
