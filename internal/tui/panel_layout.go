@@ -25,3 +25,21 @@ func (m *model) chatXOffset() int {
 	left, _, _ := panelWidths(m.width)
 	return left
 }
+
+// composeTopSection joins the top section's columns: [subagent panel |] chat
+// body plus rail | sidebar. Below the sidebar threshold it is today's padded
+// left panel alone.
+func (m *model) composeTopSection(leftPanel string, panelRows int) string {
+	left, main, sidebar := panelWidths(m.width)
+	if sidebar == 0 {
+		return padLinesTo(leftPanel, m.width)
+	}
+	cols := make([]panelColumn, 0, 3)
+	if left > 0 {
+		cols = append(cols, panelColumn{RenderSubagentPanel(m.subagentPanelInput(left, panelRows)), left})
+	}
+	cols = append(cols,
+		panelColumn{leftPanel, main},
+		panelColumn{RenderSidebar(m.sidebarRenderInput(sidebar, panelRows)), sidebar})
+	return joinPanels(cols...)
+}

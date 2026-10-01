@@ -351,35 +351,6 @@ func padLinesTo(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// joinPanelSidebar lays the sidebar beside the panel, one row at a time, with
-// each side clamped to the columns it owns.
-//
-// lipgloss.JoinHorizontal sizes the left block to its widest row and starts the
-// sidebar after it, so a single row that renders wider than the panel — one
-// stray control character is enough — moves the sidebar right on *every* row and
-// pushes its tail off the screen. The sidebar then reads as narrower than it is:
-// the columns are still there, they are just past the right edge. Clamping each
-// row to leftWidth here means the sidebar always begins at the same column and
-// always keeps all sidebarWidth of them, whatever the chat put on the row.
-func joinPanelSidebar(left, sidebar string, leftWidth, sidebarWidth int) string {
-	leftRows := strings.Split(left, "\n")
-	sideRows := strings.Split(sidebar, "\n")
-	rows := max(len(leftRows), len(sideRows))
-
-	out := make([]string, rows)
-	for i := range out {
-		var l, s string
-		if i < len(leftRows) {
-			l = leftRows[i]
-		}
-		if i < len(sideRows) {
-			s = sideRows[i]
-		}
-		out[i] = padLine(l, leftWidth) + padLine(s, sidebarWidth)
-	}
-	return strings.Join(out, "\n")
-}
-
 // panelColumn is one column of the top section: its rows and the exact number
 // of cells it owns.
 type panelColumn struct {
@@ -388,8 +359,8 @@ type panelColumn struct {
 }
 
 // joinPanels lays columns side by side, one row at a time, with every row of
-// every column clamped to the cells that column owns. It generalizes
-// joinPanelSidebar from two columns to any number.
+// every column clamped to the cells that column owns. It replaced the
+// two-column sidebar join and takes any number of columns.
 //
 // lipgloss.JoinHorizontal sizes a block to its widest row and starts the next
 // block after it, so a single row that renders wider than its column — one

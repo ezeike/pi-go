@@ -1544,14 +1544,10 @@ func (m *model) View() tea.View {
 	// Layout: messages + sidebar on top, status bar + input spanning the full
 	// width below. The sidebar sits beside the messages only; the status bar
 	// extends to the right edge, giving it more room for tools and clock info.
-	mainWidth := m.mainWidth()
 	if m.statusModel.Width != m.width || m.chatModel.Width != m.chatWidth() {
 		m.applyResize()
-		mainWidth = m.mainWidth()
 	}
 	bodyWidth := m.chatWidth()
-	sidebarWidth := m.width - mainWidth
-	showSidebar := sidebarWidth > 0
 
 	// Render components.
 	m.inputModel.SetWidth(max(0, m.width-3))
@@ -1628,7 +1624,7 @@ func (m *model) View() tea.View {
 	// beside the status bar and the two rules never met.
 	b.WriteString(hr)
 
-	// The top section: body | rail | sidebar. The sidebar only covers the
+	// The top section: [subagent panel |] body | rail | sidebar. The sidebar only covers the
 	// messages area, not the status bar below — the status bar extends the
 	// full terminal width underneath.
 	body := padLinesTo(b.String(), bodyWidth)
@@ -1636,13 +1632,7 @@ func (m *model) View() tea.View {
 	rail := railColumn(panelRows, msgStart, renderMinimap(lineKinds, startLine, endLine, msgRows, m.palette), m.palette)
 	leftPanel := lipgloss.JoinHorizontal(lipgloss.Top, body, rail)
 
-	var topSection string
-	if showSidebar {
-		sidebar := RenderSidebar(m.sidebarRenderInput(sidebarWidth, panelRows))
-		topSection = joinPanelSidebar(leftPanel, sidebar, mainWidth, sidebarWidth)
-	} else {
-		topSection = padLinesTo(leftPanel, m.width)
-	}
+	topSection := m.composeTopSection(leftPanel, panelRows)
 
 	// Bottom section: full-width status bar + input. These span the entire
 	// terminal width — the sidebar ends at the hr above, so the status bar has
@@ -2119,18 +2109,14 @@ func isResizeTextFragment(msg tea.KeyPressMsg) bool {
 	return msg.Key().Text != ""
 }
 
-// mainWidth returns the width of the main panel (excluding sidebar).
+// mainWidth returns the width of the middle column — chat body plus rail. It is
+// not the column the sidebar starts at: add chatXOffset() for any frame column.
 func (m *model) mainWidth() int {
 	if m.width <= 0 {
 		return 1
 	}
-	if m.width > 80 {
-		w := m.width - SidebarWidth
-		if w > 0 {
-			return w
-		}
-	}
-	return m.width
+	_, main, _ := panelWidths(m.width)
+	return max(1, main)
 }
 
 // chatWidth is the width of the left panel's content — everything in it, not

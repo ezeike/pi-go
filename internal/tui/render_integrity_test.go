@@ -99,7 +99,7 @@ func TestFrameHeightFitsTerminal(t *testing.T) {
 			// The top section (messages + sidebar) carries the rail on every row.
 			// The bottom section (status bar + input) spans the full width without
 			// a rail, so the check only applies to the top section.
-			railCol := m.mainWidth() - railWidth
+			railCol := m.chatXOffset() + m.mainWidth() - railWidth
 			topRows := m.topSectionRows()
 			for row := 0; row < topRows && row < len(rows); row++ {
 				g := runeAtCol(ansi.Strip(rows[row]), railCol)
@@ -126,7 +126,7 @@ func TestSidebarIsFixedSizeAndRightAligned(t *testing.T) {
 		m.chatModel.Messages = append(m.chatModel.Messages, realisticChat()...)
 
 		rows := strings.Split(m.View().Content, "\n")
-		sidebarStart := m.mainWidth() // the column the sidebar begins at
+		sidebarStart := m.chatXOffset() + m.mainWidth() // the column the sidebar begins at
 		topRows := m.topSectionRows()
 
 		for row, line := range rows {
@@ -179,7 +179,7 @@ func TestChatOutputCannotTakeTheSidebarsColumns(t *testing.T) {
 		}
 
 		rows := strings.Split(frame, "\n")
-		railCol := m.mainWidth() - railWidth
+		railCol := m.chatXOffset() + m.mainWidth() - railWidth
 		topRows := m.topSectionRows()
 		for row, line := range rows {
 			if got := ansi.StringWidth(line); got != width {
@@ -215,7 +215,7 @@ func TestFrameIntegrityOnRealContent(t *testing.T) {
 				label := fmt.Sprintf("width=%d matrix=%v scroll=%d", width, matrix, scroll)
 
 				// The rail owns the panel's last column, on every top-section row.
-				railCol := m.mainWidth() - railWidth
+				railCol := m.chatXOffset() + m.mainWidth() - railWidth
 				topRows := m.topSectionRows()
 
 				for row, line := range strings.Split(frame, "\n") {

@@ -221,3 +221,9 @@ func subagentHeaderText(msg message) string {
 	}
 	return b.String()
 }
+
+// subagentPanelInput derives the panel's input fresh from the model every frame;
+// the message slice is passed as is, not copied.
+func (m *model) subagentPanelInput(width, height int) SubagentPanelRenderInput {
+	return SubagentPanelRenderInput{Width: width, Height: height, Palette: m.palette, Messages: m.chatModel.Messages}
+}
