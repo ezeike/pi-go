@@ -26,7 +26,7 @@ Layout becomes three columns when wide enough:
 
 Modeled on `sidebar.go`: a `SubagentPanelRenderInput` struct (width, height, palette, messages) and a pure `RenderSubagentPanel(in) string`.
 
-Data source is `chatModel.Messages`. A subagent is a card where `tool` is `agent` or `subagent` and `toolPending()` is true. `handleAgentSubEvent` already appends live events to `agentEvents` on these cards, so no routing changes are needed.
+Data source is `chatModel.Messages`. A subagent is a card where `tool` is `agent`, `subagent`, or `a2a` and `toolPending()` is true. A2A cards use `agentLabel` in the header (for example `agent[istio-agent]`), matching the chat. `handleAgentSubEvent` already appends live events to `agentEvents` on these cards, so no routing changes are needed.
 
 Recency order: later message index is treated as more recent. No timestamp is added.
 
@@ -65,9 +65,12 @@ Per subagent block: header `agent[<type or label>] <title>`, then the tail of `a
 - T4. `clampToChat` and `handleMouseClick` with the panel shown: click left of the offset clears selection, click inside maps to the correct chat column.
 - T5. Frame-level: with width above the threshold every frame row has width `m.width`, and the panel text appears in the left columns.
 - T6. Fixtures are built from real `message` values, not hand-written maps.
+- T7. A2A cards appear in the panel with the `agentLabel` header.
+- T8. Frame-level: a subagent spawned through the ACP spawner shows its live events in the panel tail.
 
 ## Open items to resolve in the plan
 
 - O1. `selectedText(m.lastFrame, m.sel, m.chatWidth())` and `highlight(final, m.sel, m.chatWidth(), m.width)` index into the full frame. Confirm whether they assume the chat starts at column 0 and add the offset.
 - O2. `railColumn` and `renderMinimap` take chat-relative rows only, expected unaffected. Confirm.
+- O4. Confirm `internal/subagent/spawner_acp.go` emits live events onto `AgentEventCh`. If it does not, ACP-driven subagents would show a header with no tail. Either fix the emission in this work or split it into a follow-up.
 - O3. Windows CI: tests touching `NewSandbox` or `rg` are not involved here, but frame tests must not depend on terminal state.
