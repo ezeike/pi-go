@@ -23,12 +23,19 @@ os_env:
       - .
       - ~/.cache/go-build
       - ~/go/pkg/mod
-    # Read-only: git identity only. ~/.ssh is deliberately NOT granted, so the
-    # agent can commit locally but cannot push; push from outside the sandbox.
+    # Read-only. SSH is limited to the p16 key (the agent needs it) plus the config that maps the
+    # `p16` host to it and known_hosts; the rest of ~/.ssh stays invisible.
+    # CAUTION: p16 is passphrase-protected, so ssh can only use it through ssh-agent. The sandbox
+    # inherits SSH_AUTH_SOCK, but the socket (/run/user/1000/ssh-agent.sock -> ~/.ssh/agent/s.*)
+    # is not bound, so it is unreachable from inside. Use a passphrase-less key for this agent
+    # instead of binding the socket, which would expose every key the agent holds.
     # go.mod replaces block-builder/sdk with ../../machina/block-builder-run/sdk;
     # it is granted read-only below so builds resolve it.
     read_paths:
       - ~/.gitconfig
+      - ~/.ssh/p16
+      - ~/.ssh/config
+      - ~/.ssh/known_hosts
       - ../../machina/block-builder-run/sdk
     # Needed to fetch Go modules and reach model providers in tests.
     allow_network: true
