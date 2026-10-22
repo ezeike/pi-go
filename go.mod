@@ -59,6 +59,7 @@ require (
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
+	connectrpc.com/connect v1.19.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -200,4 +201,4 @@ replace github.com/wk8/go-ordered-map/v2 => ./third_party/go-ordered-map
 // so this path only resolves there via a sibling symlink:
 //   ln -s ~/src/machina ~/src/coding-agents/machina
 // matching the convention block-builder's own repo uses for the same reason.
-replace github.com/machina/block-builder/sdk => ../../machina/block-builder/sdk
+replace github.com/machina/block-builder/sdk => ../../machina/block-builder-run/sdk
