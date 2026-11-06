@@ -101,6 +101,9 @@ ag, err := piagent.New(ctx,
 |---|---|
 | `WithWorkingDir(dir)` | Directory to work in; sandbox root and discovery anchor |
 | `WithExtraSandboxDirs(dirs...)` | Grant file access outside the working directory |
+| `WithCommandFactory(f)` | Run bash and git through your own `*exec.Cmd` builder (e.g. a sandbox wrapper); grep falls back to Go search. Hooks, stdio MCP and LSP still run on the host |
+| `WithConfigDir(dir)` | Hermetic mode: read config, `mcp.json`, skills and agents only from `dir`; ignore `~`, workspace `.pi-go` and parent context files. HTTP-MCP OAuth tokens still cache under `~` |
+| `WithBuiltinTools(names...)` | Allow-list pi-go's own tools by name; your `WithTools`/toolsets and MCP/A2A tools are unaffected |
 | `WithSessionDir(dir)` | Where sessions are persisted |
 | `WithModel(m)` | **Required.** The ADK `model.LLM` the agent runs on |
 | `WithInstruction(s)` | Replace the built-in system prompt |

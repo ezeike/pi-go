@@ -63,6 +63,10 @@ type Sandbox struct {
 	extraRoots  []*os.Root
 	extraDirs   []string // absolute paths of extra allowed directories
 
+	// commandFactory, when set, builds every external process the tools start.
+	// Nil means run directly on the host. See [CommandFactory].
+	commandFactory CommandFactory
+
 	// Parsed .gitignore patterns, memoized across tool calls. A Sandbox lives
 	// for the whole session, and collecting these costs a full tree walk, so
 	// re-deriving them on every grep/find was the dominant cost of both tools.

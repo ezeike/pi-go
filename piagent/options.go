@@ -4,7 +4,24 @@ import (
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
+
+	"github.com/dimetron/pi-go/internal/tools"
 )
+
+// CommandFactory builds the command the agent runs for an external process: the
+// bash tool's shell and the git tools' git. Install one with
+// [WithCommandFactory] to confine those processes, for example inside a
+// container.
+//
+// ctx is the call's context, dir the directory the process should run in (the
+// agent's working directory) and name and args the program to run. The factory
+// must return a command bound to ctx — build it with exec.CommandContext — and
+// leave Stdin, Stdout and Stderr unset. It owns process isolation: pi-go does
+// not set a process group or a cancel function on the command it returns, so a
+// factory whose processes spawn a tree must install a Cancel that stops the
+// whole tree. The bash tool runs `bash -c <script>`, so bash must exist
+// wherever the factory runs it.
+type CommandFactory = tools.CommandFactory
 
 // LSPMode selects how much of the LSP tool surface is advertised to the model.
 // The declarations are billed on every request, so the default is deliberately
@@ -32,6 +49,9 @@ type AgentEventFunc func(id, kind, content string)
 type options struct {
 	workDir         string
 	extraSandbox    []string
+	commandFactory  CommandFactory
+	configDir       string
+	builtinTools    []string // nil: keep all; non-nil: allow-list by name
 	sessionDir      string
 	model           model.LLM
 	instruction     string
@@ -93,6 +113,52 @@ func WithWorkingDir(dir string) Option {
 // root (and ~/.pi-go, which is always added) is denied.
 func WithExtraSandboxDirs(dirs ...string) Option {
 	return func(o *options) { o.extraSandbox = append(o.extraSandbox, dirs...) }
+}
+
+// WithCommandFactory runs the agent's external processes through f instead of
+// directly on the host. It covers the bash tool and the git tools. File tools
+// are unaffected: they stay on the working directory's os.Root, so they and the
+// factory's processes must see the same directory.
+//
+// With a factory installed the grep tool uses its built-in Go search rather
+// than ripgrep, which would otherwise run on the host.
+//
+// This does not cover processes started from configuration: hook commands, stdio
+// MCP servers, and language servers started for the LSP tools run on the host
+// regardless. Embedders that confine the agent should control that
+// configuration and disable LSP with [WithLSP].
+func WithCommandFactory(f CommandFactory) Option {
+	return func(o *options) { o.commandFactory = f }
+}
+
+// WithBuiltinTools restricts pi-go's own tools (file, search, git, bash,
+// session stats, the forge controller, subagent, memory, palace, LSP and
+// grounding tools) to the named ones. Tools from [WithTools], [WithToolsets] and
+// configured MCP or A2A servers are not affected. A name that matches no tool is
+// ignored, because which tools exist depends on the other options. Calling it
+// with no names removes every built-in tool; not calling it keeps them all.
+func WithBuiltinTools(names ...string) Option {
+	return func(o *options) { o.builtinTools = append([]string{}, names...) }
+}
+
+// WithConfigDir pins every configuration and state location to dir, which makes
+// the agent hermetic: nothing is read from the user's home directory, from
+// ~/.pi-go, from a .pi-go folder in or above the working directory, or from
+// ancestors of the working directory.
+//
+// What it does read from dir: config.json, mcp.json and .env, skills/ and
+// agents/. Sessions, memory and the palace default to subdirectories of dir
+// (override sessions with [WithSessionDir]). The working directory is still
+// searched for AGENTS.md / CLAUDE.md, but only the working directory itself, not
+// its parents. The block-builder toolset, which is configured from the
+// environment, is not added.
+//
+// Use it when the working directory is content the embedder does not control:
+// otherwise a checked-in .pi-go/config.json or mcp.json could declare hooks or
+// stdio MCP servers that execute on the host. Known gap: OAuth tokens for HTTP
+// MCP servers are still cached under the home directory.
+func WithConfigDir(dir string) Option {
+	return func(o *options) { o.configDir = dir }
 }
 
 // WithSessionDir overrides where sessions are persisted. The default,

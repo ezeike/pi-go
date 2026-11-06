@@ -72,8 +72,17 @@ func resolveWorkDir(dir string) (string, error) {
 // resolveSessionDir returns where sessions are persisted, defaulting to the
 // directory the pi CLI uses so sessions are shared between the two.
 func resolveSessionDir(dir string) (string, error) {
+	return resolveSessionDirIn(dir, "")
+}
+
+// resolveSessionDirIn is resolveSessionDir with a config directory: when one is
+// set and no explicit directory is given, sessions live under it.
+func resolveSessionDirIn(dir, configDir string) (string, error) {
 	if dir != "" {
 		return dir, nil
+	}
+	if configDir != "" {
+		return filepath.Join(configDir, "sessions"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -94,12 +103,18 @@ func detectGitRoot(ctx context.Context, dir string) string {
 // directories, always including ~/.pi-go so config, skills and memory remain
 // reachable.
 func buildSandbox(workDir string, extra []string) (*tools.Sandbox, error) {
+	return newSandbox(workDir, extra, true)
+}
+
+// newSandbox is buildSandbox with the ~/.pi-go grant optional. A hermetic agent
+// (see [WithConfigDir]) must not be able to read the user's home state.
+func newSandbox(workDir string, extra []string, grantHomeState bool) (*tools.Sandbox, error) {
 	sb, err := tools.NewSandbox(workDir)
 	if err != nil {
 		return nil, fmt.Errorf("creating sandbox: %w", err)
 	}
 	dirs := extra
-	if home, hErr := os.UserHomeDir(); hErr == nil {
+	if home, hErr := os.UserHomeDir(); hErr == nil && grantHomeState {
 		dirs = append([]string{filepath.Join(home, ".pi-go")}, dirs...)
 	}
 	for _, dir := range dirs {
@@ -116,7 +131,21 @@ func buildSandbox(workDir string, extra []string) (*tools.Sandbox, error) {
 // set rather than failing construction: a malformed .pi-go/agents file should
 // not stop the agent from running.
 func buildSubagents(ctx context.Context, cfg *config.Config, workDir string) *subagent.Orchestrator {
-	discovery, err := subagent.DiscoverAgents(workDir, subagent.ScopeBoth)
+	return buildSubagentsIn(ctx, cfg, workDir, "")
+}
+
+// buildSubagentsIn is buildSubagents; a non-empty configDir restricts discovery
+// to the bundled agents and configDir/agents.
+func buildSubagentsIn(ctx context.Context, cfg *config.Config, workDir, configDir string) *subagent.Orchestrator {
+	var (
+		discovery *subagent.AgentDiscoveryResult
+		err       error
+	)
+	if configDir != "" {
+		discovery, err = subagent.DiscoverAgentsIn(configDir)
+	} else {
+		discovery, err = subagent.DiscoverAgents(workDir, subagent.ScopeBoth)
+	}
 	if err != nil {
 		slog.Warn("piagent: subagent discovery failed", "error", err)
 	}
@@ -130,6 +159,12 @@ func buildSubagents(ctx context.Context, cfg *config.Config, workDir string) *su
 // buildToolsets assembles the external toolsets — MCP servers and A2A agents —
 // declared in configuration.
 func buildToolsets(cfg config.Config) []adktool.Toolset {
+	return buildToolsetsIn(cfg, true)
+}
+
+// buildToolsetsIn is buildToolsets; envToolsets=false leaves out toolsets that
+// are configured from the process environment rather than from cfg.
+func buildToolsetsIn(cfg config.Config, envToolsets bool) []adktool.Toolset {
 	var toolsets []adktool.Toolset
 	if cfg.MCP != nil && len(cfg.MCP.Servers) > 0 {
 		servers := make([]extension.MCPServerConfig, len(cfg.MCP.Servers))
@@ -154,6 +189,9 @@ func buildToolsets(cfg config.Config) []adktool.Toolset {
 	if llms := cfg.LLMSSources(); llms != nil {
 		toolsets = append(toolsets, tools.NewLLMSCachedToolset(llms))
 	}
+	if !envToolsets {
+		return toolsets
+	}
 	if spec, run, chat, err := blockbuilder.NewClient(); err == nil {
 		toolsets = append(toolsets, blockbuilder.NewBlockBuilderToolset(spec, run, chat))
 	} else if !errors.Is(err, blockbuilder.ErrNotConfigured) {
@@ -174,7 +212,12 @@ func buildInstruction(o options, workDir string) string {
 	if base == "" {
 		base = agent.SystemInstruction
 	}
-	parts := agent.LoadInstructionPartsFor(base, workDir)
+	var parts agent.InstructionParts
+	if o.configDir != "" {
+		parts = agent.LoadHermeticInstructionParts(base, workDir, o.configDir)
+	} else {
+		parts = agent.LoadInstructionPartsFor(base, workDir)
+	}
 	if !o.skillsEnabled {
 		parts.Skills = ""
 	}
@@ -230,7 +273,11 @@ func setupMemory(ctx context.Context, o options, cfg config.Config, orch *subage
 	if !o.memoryEnabled {
 		return nil, nil, noop
 	}
-	db, err := memory.OpenDB(memoryDBPath(cfg))
+	dbPath := memoryDBPath(cfg)
+	if o.configDir != "" && (cfg.Memory == nil || cfg.Memory.DBPath == "") {
+		dbPath = filepath.Join(o.configDir, "memory", "claude-mem.db")
+	}
+	db, err := memory.OpenDB(dbPath)
 	if err != nil {
 		slog.Warn("piagent: memory disabled", "error", err)
 		return nil, nil, noop
@@ -342,6 +389,14 @@ func setupPalace(o options, cfg config.Config, worker *memory.Worker) ([]adktool
 		return nil, "", noop
 	}
 	dbPath, modelPath := palacePaths(cfg)
+	if o.configDir != "" {
+		if cfg.Palace == nil || cfg.Palace.DBPath == "" {
+			dbPath = filepath.Join(o.configDir, "palace.db")
+		}
+		if cfg.Palace == nil || cfg.Palace.ModelPath == "" {
+			modelPath = filepath.Join(o.configDir, "models", "KnightsAnalytics_all-MiniLM-L6-v2")
+		}
+	}
 	if dbPath == "" {
 		return nil, "", noop
 	}

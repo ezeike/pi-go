@@ -45,10 +45,8 @@ func gitFileDiffHandler(sb *Sandbox, ctx agent.Context, input GitFileDiffInput) 
 		return GitFileDiffOutput{}, fmt.Errorf("file is required")
 	}
 
-	dir := sb.Dir()
-
 	// Check if directory is a git repo
-	if _, err := runGit(ctx, dir, "rev-parse", "--git-dir"); err != nil {
+	if _, err := runGit(ctx, sb, "rev-parse", "--git-dir"); err != nil {
 		return GitFileDiffOutput{}, fmt.Errorf("not a git repository")
 	}
 
@@ -58,7 +56,7 @@ func gitFileDiffHandler(sb *Sandbox, ctx agent.Context, input GitFileDiffInput) 
 	}
 	args = append(args, "--", input.File)
 
-	diff, err := runGit(ctx, dir, args...)
+	diff, err := runGit(ctx, sb, args...)
 	if err != nil {
 		return GitFileDiffOutput{}, fmt.Errorf("git diff failed: %w", err)
 	}

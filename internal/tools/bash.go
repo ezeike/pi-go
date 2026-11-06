@@ -178,6 +178,7 @@ func bashHandler(sb *Sandbox, sup *BashSupervisor, ctx agent.Context, input Bash
 		command:     input.Command,
 		timeout:     clampDuration(input.Timeout, defaultBashTimeout, 0, maxBashTimeout),
 		idleTimeout: clampDuration(input.IdleTimeout, 0, 0, maxBashTimeout),
+		factory:     sb.commandFactory,
 	})
 	if err != nil {
 		span.RecordError(err)

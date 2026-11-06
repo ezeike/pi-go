@@ -202,6 +202,32 @@ type runRequest struct {
 	command     string
 	timeout     time.Duration
 	idleTimeout time.Duration
+
+	// factory, when set, builds the shell process instead of the host default.
+	// The factory owns the process's isolation; see [CommandFactory].
+	factory CommandFactory
+}
+
+// buildCommand returns the not-yet-started process for req. Without a factory
+// it is the host's shell, put in its own process group so a cancel reaches
+// every descendant. With one, the factory's command is used as returned:
+// Isolate would overwrite the SysProcAttr, Cancel and WaitDelay a sandbox
+// wrapper sets on purpose.
+func buildCommand(ctx context.Context, req runRequest) (*exec.Cmd, error) {
+	if req.factory == nil {
+		cmd := shellCommand(ctx, req.command)
+		cmd.Dir = req.dir
+		procs.Isolate(cmd)
+		return cmd, nil
+	}
+	cmd, err := req.factory(ctx, req.dir, "bash", "-c", req.command)
+	if err != nil {
+		return nil, err
+	}
+	if cmd == nil {
+		return nil, errors.New("command factory returned no command")
+	}
+	return cmd, nil
 }
 
 // Run executes command and blocks until it finishes, stalls, or exceeds its
@@ -259,11 +285,13 @@ func (s *BashSupervisor) start(ctx context.Context, req runRequest) (*bashProc, 
 		done:        make(chan struct{}),
 	}
 
-	cmd := shellCommand(runCtx, req.command)
-	cmd.Dir = req.dir
+	cmd, err := buildCommand(runCtx, req)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("starting command: %w", err)
+	}
 	cmd.Stdout = &sinkWriter{proc: p, stream: p.stdout, kind: "output"}
 	cmd.Stderr = &sinkWriter{proc: p, stream: p.stderr, kind: "stderr"}
-	procs.Isolate(cmd)
 	p.cmd = cmd
 
 	s.emit(p.id, "start", req.command)

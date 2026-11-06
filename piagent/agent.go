@@ -99,11 +99,16 @@ func New(ctx context.Context, opts ...Option) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessionDir, err := resolveSessionDir(o.sessionDir)
+	sessionDir, err := resolveSessionDirIn(o.sessionDir, o.configDir)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadFrom(workDir)
+	var cfg config.Config
+	if o.configDir != "" {
+		cfg, err = config.LoadDir(o.configDir)
+	} else {
+		cfg, err = config.LoadFrom(workDir)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
@@ -179,7 +184,7 @@ func New(ctx context.Context, opts ...Option) (*Agent, error) {
 	inner, err := agent.New(agent.Config{
 		Model:                llm,
 		Tools:                rt.tools,
-		Toolsets:             append(buildToolsets(cfg), o.toolsets...),
+		Toolsets:             append(buildToolsetsIn(cfg, o.configDir == ""), o.toolsets...),
 		Instruction:          instruction,
 		SessionService:       sessionSvc,
 		WorkingDir:           workDir,
@@ -241,11 +246,12 @@ type runtimeParts struct {
 func (a *Agent) buildRuntime(ctx context.Context, o options, cfg *config.Config, providerName string) (*runtimeParts, error) {
 	workDir := a.workDir
 
-	sandbox, err := buildSandbox(workDir, o.extraSandbox)
+	sandbox, err := newSandbox(workDir, o.extraSandbox, o.configDir == "")
 	if err != nil {
 		return nil, err
 	}
 	a.push(sandbox.Close)
+	sandbox.SetCommandFactory(o.commandFactory)
 
 	bashSup := tools.NewBashSupervisor()
 	// Backgrounded commands have no owner but this supervisor; leaving them
@@ -270,7 +276,7 @@ func (a *Agent) buildRuntime(ctx context.Context, o options, cfg *config.Config,
 	}
 	bashSup.SetSink(func(execID, kind, content string) { onEvent(execID, kind, content) })
 
-	orch := buildSubagents(ctx, cfg, workDir)
+	orch := buildSubagentsIn(ctx, cfg, workDir, o.configDir)
 	a.push(func() error { orch.Shutdown(); return nil })
 	if o.subagentEnabled {
 		agentTools, aErr := tools.AgentTools(orch, tools.AgentEventCallback(onEvent))
@@ -310,6 +316,9 @@ func (a *Agent) buildRuntime(ctx context.Context, o options, cfg *config.Config,
 	if gTool, ok := agent.GeminiGroundingTool(providerName, a.modelName); ok {
 		coreTools = append(coreTools, gTool)
 	}
+	if o.builtinTools != nil {
+		coreTools = filterToolsByName(coreTools, o.builtinTools)
+	}
 	coreTools = append(coreTools, o.tools...)
 
 	return &runtimeParts{
@@ -320,6 +329,17 @@ func (a *Agent) buildRuntime(ctx context.Context, o options, cfg *config.Config,
 		palaceContext: palaceContext,
 		tools:         coreTools,
 	}, nil
+}
+
+// filterToolsByName keeps the tools whose name is in allow, preserving order.
+func filterToolsByName(all []adktool.Tool, allow []string) []adktool.Tool {
+	kept := make([]adktool.Tool, 0, len(all))
+	for _, t := range all {
+		if slices.Contains(allow, t.Name()) {
+			kept = append(kept, t)
+		}
+	}
+	return kept
 }
 
 // push registers a cleanup function, to be run in reverse order by Close.

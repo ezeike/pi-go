@@ -96,6 +96,15 @@ func ripgrepAvailable() bool {
 // rgAvailable is set at startup based on whether ripgrep is installed.
 var rgAvailable = ripgrepAvailable()
 
+// useRipgrep reports whether sb's grep should shell out to ripgrep. It does not
+// when the sandbox has a command factory: rg would run on the host, outside the
+// embedder's process confinement, and the probe above tested the host rather
+// than whatever the factory runs in. The Go implementation reads through the
+// sandbox's os.Root and starts no process.
+func useRipgrep(sb *Sandbox) bool {
+	return rgAvailable && !sb.hasCommandFactory()
+}
+
 // GrepInput defines the parameters for the grep tool.
 type GrepInput struct {
 	// The regex pattern to search for.
@@ -127,7 +136,7 @@ type GrepMatch struct {
 
 func newGrepTool(sb *Sandbox) (tool.Tool, error) {
 	grepToolName := "grep"
-	if rgAvailable {
+	if useRipgrep(sb) {
 		grepToolName = "ripgrep"
 	}
 	return newTool(grepToolName, "Search file contents using a regex pattern. Supports glob filtering and case-insensitive search. Returns matching lines with file paths and line numbers.", func(_ agent.Context, input GrepInput) (GrepOutput, error) {
@@ -267,7 +276,7 @@ func grepHandler(sb *Sandbox, input GrepInput) (GrepOutput, error) {
 	}
 
 	// Try ripgrep first if available
-	if rgAvailable && !grepRGDisabled {
+	if useRipgrep(sb) && !grepRGDisabled {
 		if result, rgErr := grepWithRG(sb, input, searchPath); rgErr == nil {
 			return result, nil
 		}

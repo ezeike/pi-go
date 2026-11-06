@@ -410,6 +410,29 @@ func LoadFrom(cwd string) (Config, error) {
 	return cfg, nil
 }
 
+// LoadDir reads configuration from a single directory and nothing else:
+// dir/config.json, dir/mcp.json and dir/.env. It never consults the home
+// directory, the process working directory or any project .pi-go folder, so the
+// result depends only on what dir holds. An embedder that ships its own
+// configuration uses this to keep a workspace it does not control from
+// supplying hooks, MCP servers or provider settings.
+func LoadDir(dir string) (Config, error) {
+	cfg := Defaults()
+
+	if err := loadFile(filepath.Join(dir, "config.json"), &cfg); err != nil && !os.IsNotExist(err) {
+		return cfg, err
+	}
+
+	env := make(map[string]string)
+	mergeEnvFile(env, filepath.Join(dir, ".env"))
+	servers := expandServerEnv(env, loadMCPServersFromFile(filepath.Join(dir, "mcp.json")))
+	mergeStandaloneMCPServers(&cfg, servers)
+
+	cfg.ReroutedLLMS = registerLLMSDocsSources(&cfg)
+	migrateDefaultModelRoles(&cfg)
+	return cfg, nil
+}
+
 // loadConfigFiles overlays the nearest project .pi-go/config.json onto the
 // global ~/.pi-go/config.json on top of cfg. A missing file is not an error;
 // any other read or parse failure is.
@@ -549,7 +572,12 @@ func substituteEnvVars(servers []MCPServer) []MCPServer {
 }
 
 func substituteEnvVarsFrom(cwd string, servers []MCPServer) []MCPServer {
-	env := loadEnvFileFrom(cwd)
+	return expandServerEnv(loadEnvFileFrom(cwd), servers)
+}
+
+// expandServerEnv expands ${VAR} references in each server's URL and headers
+// using env.
+func expandServerEnv(env map[string]string, servers []MCPServer) []MCPServer {
 	for i := range servers {
 		if servers[i].URL != "" {
 			servers[i].URL = substituteEnv(env, servers[i].URL)

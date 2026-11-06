@@ -1,6 +1,8 @@
 package piagent
 
 import (
+	"context"
+	"os/exec"
 	"testing"
 
 	adkagent "google.golang.org/adk/v2/agent"
@@ -59,6 +61,9 @@ func TestOptionsAreApplied(t *testing.T) {
 	for _, opt := range []Option{
 		WithWorkingDir("/work"),
 		WithExtraSandboxDirs("/data", "/cache"),
+		WithCommandFactory(func(context.Context, string, string, ...string) (*exec.Cmd, error) { return nil, nil }),
+		WithConfigDir("/cfg"),
+		WithBuiltinTools("read"),
 		WithSessionDir("/sessions"),
 		WithModel(fake),
 		WithInstruction("BASE"),
@@ -85,6 +90,9 @@ func TestOptionsAreApplied(t *testing.T) {
 	}{
 		{"workDir", o.workDir == "/work"},
 		{"extraSandbox", len(o.extraSandbox) == 2},
+		{"commandFactory", o.commandFactory != nil},
+		{"configDir", o.configDir == "/cfg"},
+		{"builtinTools", len(o.builtinTools) == 1},
 		{"sessionDir", o.sessionDir == "/sessions"},
 		{"model", o.model == fake},
 		{"instruction", o.instruction == "BASE"},

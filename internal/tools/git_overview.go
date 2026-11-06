@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -62,14 +61,14 @@ func includeOrDefault(flag *bool) bool {
 
 // collectGitHead fills in the branch name and recent commits. Either may be
 // unavailable — an empty repo has no HEAD — in which case it is left unset.
-func collectGitHead(ctx agent.Context, dir string, out *GitOverviewOutput) {
+func collectGitHead(ctx agent.Context, sb *Sandbox, out *GitOverviewOutput) {
 	// Branch name
-	if branch, err := runGit(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+	if branch, err := runGit(ctx, sb, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
 		out.Branch = strings.TrimSpace(branch)
 	}
 
 	// Recent commits (may fail in empty repo)
-	if log, err := runGit(ctx, dir, "log", "--oneline", "-10"); err == nil {
+	if log, err := runGit(ctx, sb, "log", "--oneline", "-10"); err == nil {
 		trimmed := strings.TrimSpace(log)
 		if trimmed != "" {
 			out.RecentCommits = strings.Split(trimmed, "\n")
@@ -79,8 +78,8 @@ func collectGitHead(ctx agent.Context, dir string, out *GitOverviewOutput) {
 
 // collectGitStatusFiles parses porcelain status into the file lists the caller
 // asked for. Defaults: include everything unless explicitly set to false.
-func collectGitStatusFiles(ctx agent.Context, dir string, input GitOverviewInput, out *GitOverviewOutput) {
-	status, err := runGit(ctx, dir, "status", "--porcelain")
+func collectGitStatusFiles(ctx agent.Context, sb *Sandbox, input GitOverviewInput, out *GitOverviewOutput) {
+	status, err := runGit(ctx, sb, "status", "--porcelain")
 	if err != nil {
 		return
 	}
@@ -99,15 +98,15 @@ func collectGitStatusFiles(ctx agent.Context, dir string, input GitOverviewInput
 
 // collectGitUpstream fills in the tracking branch and its ahead/behind counts,
 // leaving them unset when the branch tracks nothing.
-func collectGitUpstream(ctx agent.Context, dir string, out *GitOverviewOutput) {
-	upstream, err := runGit(ctx, dir, "rev-parse", "--abbrev-ref", "@{upstream}")
+func collectGitUpstream(ctx agent.Context, sb *Sandbox, out *GitOverviewOutput) {
+	upstream, err := runGit(ctx, sb, "rev-parse", "--abbrev-ref", "@{upstream}")
 	if err != nil {
 		return
 	}
 	out.Upstream = strings.TrimSpace(upstream)
 
 	// Ahead/behind counts
-	counts, err := runGit(ctx, dir, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+	counts, err := runGit(ctx, sb, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
 	if err != nil {
 		return
 	}
@@ -130,16 +129,16 @@ func gitOverviewHandler(sb *Sandbox, ctx agent.Context, input GitOverviewInput) 
 	defer span.End()
 
 	// Check if directory is a git repo
-	if _, err := runGit(ctx, dir, "rev-parse", "--git-dir"); err != nil {
+	if _, err := runGit(ctx, sb, "rev-parse", "--git-dir"); err != nil {
 		span.RecordError(err)
 		span.SetAttributes(attribute.String("git.error", "not_a_git_repository"))
 		return GitOverviewOutput{}, fmt.Errorf("not a git repository: %w", err)
 	}
 
 	var out GitOverviewOutput
-	collectGitHead(ctx, dir, &out)
-	collectGitStatusFiles(ctx, dir, input, &out)
-	collectGitUpstream(ctx, dir, &out)
+	collectGitHead(ctx, sb, &out)
+	collectGitStatusFiles(ctx, sb, input, &out)
+	collectGitUpstream(ctx, sb, &out)
 
 	span.SetAttributes(
 		attribute.String("git.branch", out.Branch),
@@ -181,8 +180,10 @@ func parsePorcelain(output string) (staged, unstaged, untracked []string) {
 	return
 }
 
-// runGit executes a git command in the given directory and returns stdout.
-func runGit(ctx agent.Context, dir string, args ...string) (string, error) {
+// runGit executes a git command in the sandbox's directory and returns stdout.
+// The process is started through the sandbox's command factory, so an embedder
+// that confines external processes confines git too.
+func runGit(ctx agent.Context, sb *Sandbox, args ...string) (string, error) {
 	var parentCtx = context.Background()
 	if ctx != nil {
 		parentCtx = ctx
@@ -190,8 +191,10 @@ func runGit(ctx agent.Context, dir string, args ...string) (string, error) {
 	cmdCtx, cancel := context.WithTimeout(parentCtx, defaultGitTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "git", args...)
-	cmd.Dir = dir
+	cmd, err := sb.newCommand(cmdCtx, sb.Dir(), "git", args...)
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

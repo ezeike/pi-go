@@ -874,6 +874,23 @@ func LoadInstructionPartsFor(baseInstruction, cwd string) InstructionParts {
 	return loadInstructionPartsFrom(baseInstruction, cwd, home)
 }
 
+// LoadHermeticInstructionParts is LoadInstructionPartsFor without any reach
+// outside cwd and configDir: context files come from cwd alone (not its
+// ancestors, not ~/.pi-go), skills from configDir/skills, and the prompt does
+// not report the host's HOME, USER or PWD.
+func LoadHermeticInstructionParts(baseInstruction, cwd, configDir string) InstructionParts {
+	parts := InstructionParts{Base: prependEnvironmentContext(baseInstruction, "", "", cwd, cwd)}
+
+	if f, ok := readContextFileIn(filepath.Clean(cwd)); ok {
+		parts.Rules = "\n\n# Project Rules\n\n" + f.content
+	}
+	skills, err := extension.LoadSkills(filepath.Join(configDir, "skills"))
+	if err == nil && len(skills) > 0 {
+		parts.Skills = appendSkillsMenu(skills)
+	}
+	return parts
+}
+
 // LoadInstructionParts resolves the system prompt and returns it broken into
 // its sections.
 func LoadInstructionParts(baseInstruction string) InstructionParts {

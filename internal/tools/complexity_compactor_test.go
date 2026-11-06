@@ -1035,7 +1035,7 @@ func TestIncludeOrDefault(t *testing.T) {
 func TestCollectGitHead_EmptyRepo(t *testing.T) {
 	dir := initGitRepo(t)
 	var out GitOverviewOutput
-	collectGitHead(nil, dir, &out)
+	collectGitHead(nil, testSandbox(t, dir), &out)
 	if len(out.RecentCommits) != 0 {
 		t.Errorf("recent commits = %v, want none in an empty repo", out.RecentCommits)
 	}
@@ -1044,7 +1044,7 @@ func TestCollectGitHead_EmptyRepo(t *testing.T) {
 // TestCollectGitStatusFiles_NotARepo pins the early return when git status fails.
 func TestCollectGitStatusFiles_NotARepo(t *testing.T) {
 	var out GitOverviewOutput
-	collectGitStatusFiles(nil, t.TempDir(), GitOverviewInput{}, &out)
+	collectGitStatusFiles(nil, testSandbox(t, t.TempDir()), GitOverviewInput{}, &out)
 	if out.StagedFiles != nil || out.UnstagedFiles != nil || out.UntrackedFiles != nil {
 		t.Errorf("expected no file lists outside a repo, got %+v", out)
 	}
@@ -1054,7 +1054,7 @@ func TestCollectGitStatusFiles_NotARepo(t *testing.T) {
 // nothing.
 func TestCollectGitUpstream_NoUpstream(t *testing.T) {
 	var out GitOverviewOutput
-	collectGitUpstream(nil, initGitRepo(t), &out)
+	collectGitUpstream(nil, testSandbox(t, initGitRepo(t)), &out)
 	if out.Upstream != "" || out.Ahead != 0 || out.Behind != 0 {
 		t.Errorf("expected no upstream info, got %+v", out)
 	}

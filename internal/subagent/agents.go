@@ -306,6 +306,24 @@ func DiscoverAgents(cwd string, scope AgentScope) (*AgentDiscoveryResult, error)
 	return result, nil
 }
 
+// DiscoverAgentsIn returns the bundled agents plus those defined under
+// dir/agents, and nothing from the home directory or any project folder.
+func DiscoverAgentsIn(dir string) (*AgentDiscoveryResult, error) {
+	bundled, err := LoadBundledAgents()
+	if err != nil {
+		return nil, fmt.Errorf("loading bundled agents: %w", err)
+	}
+	user, err := loadAgentsWithSource(filepath.Join(dir, "agents"), "user")
+	if err != nil {
+		return nil, fmt.Errorf("loading agents from %s: %w", dir, err)
+	}
+	result := &AgentDiscoveryResult{Bundled: bundled, User: user}
+	seen := make(map[string]int)
+	result.All = mergeAgentsByName(result.All, seen, result.Bundled)
+	result.All = mergeAgentsByName(result.All, seen, result.User)
+	return result, nil
+}
+
 // FindAgent looks up an agent by name from a discovery result.
 func FindAgent(result *AgentDiscoveryResult, name string) (AgentConfig, bool) {
 	for _, agent := range result.All {
