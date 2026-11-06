@@ -24,6 +24,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/a2atool"
 	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/agent"
 	"github.com/dimetron/pi-go/internal/autocompact"
@@ -1538,7 +1539,7 @@ func buildToolsets(cfg config.Config) []adktool.Toolset {
 func buildNonMCPToolsets(cfg config.Config) []adktool.Toolset {
 	var toolsets []adktool.Toolset
 	if cfg.A2A != nil && len(cfg.A2A.Agents) > 0 {
-		toolsets = append(toolsets, tools.NewA2AToolset(cfg.A2A))
+		toolsets = append(toolsets, a2atool.NewA2AToolset(cfg.A2A))
 	}
 	if spec, run, chat, err := blockbuilder.NewClient(); err == nil {
 		toolsets = append(toolsets, blockbuilder.NewBlockBuilderToolset(spec, run, chat))

@@ -148,19 +148,20 @@ func TestBuildToolsets(t *testing.T) {
 		}},
 	}
 	// MCP transports connect lazily, so nothing is spawned here.
-	if got := buildToolsets(cfg); len(got) != 3 {
-		t.Errorf("buildToolsets(mcp+a2a) = %d toolsets, want 3", len(got))
+	// A2A agents are not built by piagent (see buildToolsetsIn), so only the two MCP servers count.
+	if got := buildToolsets(cfg); len(got) != 2 {
+		t.Errorf("buildToolsets(mcp+a2a) = %d toolsets, want 2", len(got))
 	}
 
 	// llms.txt sources add the (cached) fetch_docs toolset; building it
 	// touches no network and no disk.
 	cfg.LLMS = &config.LLMSConfig{Sources: []config.LLMSSource{{Name: "adk", URL: "https://adk.dev/llms.txt"}}}
 	got := buildToolsets(cfg)
-	if len(got) != 4 {
-		t.Fatalf("buildToolsets(mcp+a2a+llms) = %d toolsets, want 4", len(got))
+	if len(got) != 3 {
+		t.Fatalf("buildToolsets(mcp+llms) = %d toolsets, want 3", len(got))
 	}
-	if _, ok := got[3].(*tools.LLMSToolset); !ok || got[3].Name() != "llms" {
-		t.Errorf("last toolset = %T %q, want *tools.LLMSToolset %q", got[3], got[3].Name(), "llms")
+	if _, ok := got[2].(*tools.LLMSToolset); !ok || got[2].Name() != "llms" {
+		t.Errorf("last toolset = %T %q, want *tools.LLMSToolset %q", got[2], got[2].Name(), "llms")
 	}
 }
 

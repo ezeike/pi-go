@@ -7,6 +7,7 @@ import (
 
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/a2atool"
 	"github.com/dimetron/pi-go/internal/agent"
 	"github.com/dimetron/pi-go/internal/config"
 	"github.com/dimetron/pi-go/internal/lsp"
@@ -104,7 +105,7 @@ func Inventory(dir string) ([]ToolInfo, error) {
 	add("lsp", "lsp", lspTools)
 
 	add("llms", "llms-config", tools.LLMSTools(tools.NewLLMSToolset(&config.LLMSConfig{})))
-	add("a2a", "a2a-config", tools.A2ATools(tools.NewClientCache(&config.A2AConfig{})))
+	add("a2a", "a2a-config", a2atool.A2ATools(a2atool.NewClientCache(&config.A2AConfig{})))
 
 	palaceTools, err := palace.PalaceTools(&palace.Palace{})
 	if err != nil {

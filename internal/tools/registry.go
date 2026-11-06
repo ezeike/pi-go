@@ -297,6 +297,12 @@ func newTool[TArgs, TResults any](name, description string, handler functiontool
 	return newFunctionTool(name, description, handler, false, aliases...)
 }
 
+// NewTool is newTool for packages outside tools that define their own tools
+// (the lenient schema, coercion and alias handling stay in one place).
+func NewTool[TArgs, TResults any](name, description string, handler functiontool.Func[TArgs, TResults], aliases ...map[string]string) (tool.Tool, error) {
+	return newTool(name, description, handler, aliases...)
+}
+
 // newLongRunningTool is newTool for a function call that may block while an
 // external controller completes a turn. It preserves the same lenient input
 // handling, so the long-running marker is the only behavior change.

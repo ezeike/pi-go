@@ -183,9 +183,9 @@ func buildToolsetsIn(cfg config.Config, envToolsets bool) []adktool.Toolset {
 		}
 		toolsets = append(toolsets, mcpToolsets...)
 	}
-	if cfg.A2A != nil && len(cfg.A2A.Agents) > 0 {
-		toolsets = append(toolsets, tools.NewA2AToolset(cfg.A2A))
-	}
+	// cfg.A2A is deliberately not built here: the A2A client links a2a-go's
+	// protobuf registrations, which clash with an embedder that links another
+	// copy of the A2A protos. The CLI builds that toolset itself.
 	if llms := cfg.LLMSSources(); llms != nil {
 		toolsets = append(toolsets, tools.NewLLMSCachedToolset(llms))
 	}

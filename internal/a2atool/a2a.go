@@ -1,4 +1,4 @@
-package tools
+package a2atool
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 
 	"github.com/dimetron/pi-go/internal/config"
+	"github.com/dimetron/pi-go/internal/tools"
 )
 
 // A2AInput defines the parameters for the a2a tool.
@@ -373,7 +374,7 @@ func A2ATools(cache *ClientCache) []tool.Tool {
 func NewA2ATool(cache *ClientCache) (tool.Tool, error) {
 	desc := buildA2ADescription(cache)
 
-	return newTool("a2a", desc,
+	return tools.NewTool("a2a", desc,
 		func(ctx agent.Context, input A2AInput) (A2AOutput, error) {
 			// Send the message
 			result := cache.SendMessage(ctx, input.AgentName, input.Prompt, input.Stream)

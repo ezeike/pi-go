@@ -1,4 +1,4 @@
-package tools
+package a2atool
 
 import (
 	"bytes"
@@ -324,4 +324,12 @@ func (f *frameReader) Next() (byte, []byte, error) {
 		return 0, nil, err
 	}
 	return flag, payload, nil
+}
+
+// truncate shortens s to at most max bytes, marking the cut.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
