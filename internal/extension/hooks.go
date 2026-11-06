@@ -379,13 +379,18 @@ func BuildLLMTracingCallbacks(providerName string) ([]llmagent.BeforeModelCallba
 		// A streaming call reports every chunk through this callback. Only the
 		// terminal one closes the span — usage metadata rides on that final
 		// response, so ending early would drop the token counts entirely.
+		//
+		// Every path returns (nil, nil), "no change". ADK stops at the first
+		// after-model callback that returns a response, so handing resp back
+		// here would keep every callback registered after this one from ever
+		// running (the context meter, an embedder's own).
 		if respErr == nil && resp != nil && resp.Partial {
-			return resp, nil
+			return nil, nil
 		}
 
 		span := spans.pop(ctx.InvocationID())
 		if span == nil {
-			return resp, nil
+			return nil, nil
 		}
 		if resp != nil {
 			setLLMResponseAttributes(span, resp)
@@ -400,7 +405,7 @@ func BuildLLMTracingCallbacks(providerName string) ([]llmagent.BeforeModelCallba
 			span.SetStatus(codes.Ok, "")
 		}
 		span.End()
-		return resp, nil
+		return nil, nil
 	}
 
 	return []llmagent.BeforeModelCallback{beforeCB}, []llmagent.AfterModelCallback{afterCB}

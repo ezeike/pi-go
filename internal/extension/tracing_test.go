@@ -347,3 +347,29 @@ func TestSetLLMResponseAttributesSkipsZeroCounts(t *testing.T) {
 		t.Error("zero output tokens should not be reported")
 	}
 }
+
+// TestLLMTracingAfterCallbackLeavesTheResponseAlone: ADK stops at the first
+// after-model callback that returns a response, so a tracing callback that
+// handed the response back would silence every callback registered after it.
+func TestLLMTracingAfterCallbackLeavesTheResponseAlone(t *testing.T) {
+	newSpanRecorder(t)
+	before, after := BuildLLMTracingCallbacks("openai")
+	ctx := &mockReadonlyContext{Context: context.Background(), invocationID: "inv-pass"}
+
+	cases := map[string]*model.LLMResponse{
+		"partial": {Partial: true},
+		"final":   {TurnComplete: true},
+		"no span": {TurnComplete: true}, // popped by the previous case
+	}
+	for name, resp := range cases {
+		if name == "partial" || name == "final" {
+			if _, err := before[0](ctx, &model.LLMRequest{Model: "m"}); err != nil {
+				t.Fatalf("before: %v", err)
+			}
+		}
+		got, err := after[0](ctx, resp, nil)
+		if err != nil || got != nil {
+			t.Errorf("%s: after = (%v, %v), want (nil, nil)", name, got, err)
+		}
+	}
+}
