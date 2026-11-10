@@ -377,6 +377,7 @@ reconstruct the text; that is how every consumer uses it.
 | `/history`      | Show command history                                     |
 | `/plan`         | Start a Plan-Driven Development (PDD) session (auto-resumes if a spec exists) |
 | `/run`          | Execute a spec with task agent                           |
+| `/goal`         | Set an objective and keep taking turns until it is met (see below) |
 | `/skill-create` | Create a new skill                                       |
 | `/skill-list`   | List available skills                                    |
 | `/skill-load`   | Reload skills from disk                                  |
@@ -384,6 +385,73 @@ reconstruct the text; that is how every consumer uses it.
 | `/audit`        | Scan skills for hidden Unicode threats                   |
 | `/clear`        | Clear conversation                                       |
 | `/exit`         | Exit the agent                                           |
+
+### Goals: work that outlives a turn
+
+`/goal <objective>` sets a session objective and starts a loop: when a turn ends
+with the goal still active, the next turn starts automatically, until the agent
+calls the `goal_complete` tool or the cycle budget runs out.
+
+```
+/goal keep the tests green after every refactor
+```
+
+The objective is injected into the system prompt as a `# Current Goal` section,
+persisted in the session's `meta.json`, and shown in the status bar with the cycle
+it has reached (`goal 2/8: keep the tests green…`).
+
+The loop is bounded, and every bound is a deliberate choice:
+
+- **Cycles.** 8 by default, overridable with `PI_GOAL_MAX_CYCLES`. Hitting the
+  budget stops the loop and leaves the objective active, so `/goal resume`
+  continues it rather than making you retype it.
+- **`goal_complete`.** The agent ends the loop by calling this tool with the
+  cycle number the prompt names. A report that names another cycle is rejected,
+  so a turn that started before the goal was set cannot close it.
+- **Esc.** Stops the loop. The objective stays active — press `/goal resume` to
+  continue.
+- **A prompt you type.** Runs before the next automatic cycle, so what you say
+  about the work reaches the agent before it spends another turn on it.
+
+`/goal pause` stops the loop and keeps the objective; `/goal clear` drops it. A
+goal is per-session and survives `--continue`, though resuming never restarts the
+loop on its own.
+
+### Installing a single skill
+
+When you want one specific skill rather than a whole plugin bundle, install it
+straight from its repository:
+
+```bash
+# Install one skill from a repository
+pi skills add humanlayer/skills --skill show-me
+
+# Install every skill the repository offers
+pi skills add humanlayer/skills
+
+# See and remove what is installed
+pi skills list
+pi skills remove show-me
+```
+
+| Command                            | Description                                                    |
+|------------------------------------|----------------------------------------------------------------|
+| `pi skills add <source>`           | Install skills from a repository or local directory            |
+| `pi skills add <source> --skill x` | Install only skill `x` (repeatable, or comma-separated)        |
+| `pi skills add <source> --force`   | Replace a skill that is already installed                      |
+| `pi skills list`                   | List installed skills with their descriptions                  |
+| `pi skills remove <skill>...`      | Remove installed skills                                        |
+
+`<source>` accepts the same forms as a plugin source: a GitHub shorthand
+(`owner/repo`), a git URL, or a local directory. Skills are found under
+`skills/<name>/SKILL.md` and `.pi-go/skills/<name>/SKILL.md`, so the same
+repositories work for both mechanisms.
+
+Installed skills live in `~/.pi-go/skills/<name>/` and are loaded in every
+session, outranking a bundled or plugin skill with the same name. Bundled files
+(`references/`, `scripts/`, …) are copied along with `SKILL.md`. An existing
+skill is never overwritten without `--force`, so an install cannot silently
+replace a skill you edited by hand.
 
 ### Plugin marketplaces
 
@@ -722,6 +790,32 @@ Or in standalone `~/.pi-go/mcp.json` (Claude Desktop compatible format):
 
 **Environment variable substitution:** Pi automatically expands `${ENV_VAR}` patterns in server URLs using `.pi-go/.env`
 
+Or manage servers from the command line instead of editing JSON:
+
+```bash
+pi mcp add superlogical --url https://www.superlogical.com/rex/community-mcp
+pi mcp login superlogical        # authorize it now, ahead of any session
+pi mcp list                      # what pi would load, with transport and auth state
+pi mcp remove superlogical
+```
+
+`pi mcp add` writes `~/.pi-go/mcp.json` (or `.pi-go/mcp.json` in the current tree
+with `--project`), in the same format other MCP clients read. Use `--command` and
+repeatable `--arg` for a stdio server, `--header key=value` for extra HTTP headers,
+and `--force` to replace an existing entry of the same name.
+
+`pi mcp login` is for remote servers that want a bearer token. It runs the OAuth
+authorization-code flow in your browser, validates the result by listing the
+server's tools, and caches the token under `~/.pi-go/mcp-oauth`. Every later
+session presents that token from the start, so an agent run never stops to ask
+for a browser — and a headless run, which cannot authorize at all, finds working
+credentials already on disk. Without a login the token is obtained on first
+connect instead, which is fine interactively and a skip otherwise.
+
+**Scope matters:** a project `.pi-go/mcp.json` *replaces* the global server list
+rather than merging with it. `pi mcp add` warns when the file it just wrote is
+shadowed by one found in the current tree; pass `--project` to add there instead.
+
 ## Editor integration
 
 Pi can run as an Agent Client Protocol (ACP) server. Use it from any IDE that supports ACP.
@@ -786,6 +880,28 @@ session id. The server implements the protocol's session lifecycle on top of it:
 
 So an editor can restart pi — or the machine — and pick a thread up where it
 left off, and `pi --session <id>` reopens the same conversation from the terminal.
+
+### Conformance
+
+`pi acp-server` speaks ACP **v1**. To check it against the protocol independently,
+run the upstream [ACP Test Compatibility Kit](https://github.com/agentclientprotocol/acp-tck)
+against the built binary:
+
+```bash
+# from a checkout of github.com/agentclientprotocol/acp-tck
+uv run acp-tck --protocol-version 1 \
+  --agent-cwd /tmp/acp-tck-wd --timeout 90 --test-timeout 300 \
+  -- /path/to/pi acp-server --model <provider/model>
+```
+
+Pass `--model` with a model the machine is authenticated for: the server's default
+fallback is not universally available, and an unauthenticated model surfaces as prompt
+failures (`401 Unauthorized`) that look like protocol defects but are not. As of the
+last run, the kit reports `VERDICT: CONFORMANT` — all mandatory requirements pass. The
+skips are capability-tier checks for features pi does not advertise (`image`/`audio`
+prompts, `session/delete`, `session/close`, `additionalDirectories`, `auth.logout`, and
+`session/new` returning no `modes`/`configOptions`), which the kit correctly reports as
+"not advertised" rather than a failure.
 
 ## kagent
 

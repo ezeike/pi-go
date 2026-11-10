@@ -36,6 +36,82 @@ That command speaks ACP over stdin/stdout. The Dockerfile in this directory
 builds the real adapter: `pi a2a`, which serves JSON-RPC A2A + gRPC A2A on
 `$PORT` (80) plus the agent card and `/readyz` readiness probe on :8081.
 
+The Harness must therefore select `spec.byo`, not `spec.kagent`. `spec.kagent`
+selects kagent's managed ADK compiler, which drives an ADK agent and expects the
+runtime to implement ADK's private task-store gRPC service
+(`kagent.runtime.v1.TaskStoreService`) and to receive `KAGENT_API_URL` by
+injection. pi-go implements the A2A surface, not that private contract, so a
+managed harness admits the template and then fails on the first turn. `spec.byo`
+is the adapter contract — with one requirement the CEL rules enforce: BYO
+harnesses must set `spec.workload.command`.
+
+### Task persistence
+
+Where task state is written differs by controller version, and pi-go cannot
+detect which one it is talking to:
+
+- **Current kagent** writes it itself. The gateway consumes the runtime's A2A
+  event stream and persists every task and event into its own PostgreSQL
+  (`agent_instance_task`, `agent_instance_task_event`). The runtime only has to
+  emit a well-formed task and stream its updates correctly — no RPC.
+- **Older controllers** expected the runtime to persist through a private
+  `TaskStoreService`. That is what `internal/kagent/taskstore.go` implements, and
+  it is enabled only when `KAGENT_TASK_STORE_ADDRESS` is set. There is no
+  implicit fallback: pointing it at a controller that does not serve that service
+  turns a working turn into a failed RPC.
+
+**Measured on v1alpha3 (v1.0.0-alpha14-9-g7a0a4fd0), the opposite is true:**
+this controller *does* serve `kagent.runtime.v1.TaskStoreService`, and a pi-go
+harness that leaves `KAGENT_TASK_STORE_ADDRESS` unset keeps its tasks in memory.
+Every turn then streams a correct answer and fails immediately afterwards with
+`task not found`, because the gateway looks for the task in its own database and
+finds nothing. Setting it is what makes the turn succeed:
+
+```yaml
+env:
+  - name: KAGENT_TASK_STORE_ADDRESS
+    value: http://kagent-controller.<namespace>:8083   # gRPC, not HTTP
+```
+
+Verified by A/B on one cluster: `kagent: {}` failed, `byo: {}` alone still
+failed, and `byo: {}` plus this variable produced a `TASK_STATE_COMPLETED` row
+in `kagent.session_task` and a clean reply. Treat the variable as **required**
+for this controller generation and re-test before removing it after a kagent
+upgrade.
+
+> **Counter-measurement on `v1.0.0-alpha17-68-g4099410a`: the variable is not
+> required.** On that controller a `pi-go` Harness with an empty `spec.env` — no
+> `KAGENT_TASK_STORE_ADDRESS` at all — completed a turn and wrote
+> `TASK_STATE_COMPLETED` to `kagent.session_task`, with `NATIVE-OK` in the task
+> body. So the requirement above is specific to the alpha14 generation, not to
+> "this controller generation" generally. The `task not found` symptom has more
+> than one cause: it also appears when the *client* and controller disagree about
+> version, and the task is never persisted in the first place. Check
+> `kagent.session_task` for a row before concluding the task store is misconfigured.
+
+### MCP tools and credentials
+
+An AgentTemplate's `spec.tools` entries are **not** delivered through the Harness
+or through config files. The controller compiles them into the `KAGENT_CONFIG_JSON`
+environment variable of the workload, under `agent.http_tools`:
+
+```json
+{"agent":{"http_tools":[{"params":{"url":"https://api.githubcopilot.com/mcp/x/pull_requests/readonly",
+  "headers":{"Authorization":"KAGENT_ENV[KAGENT_CREDENTIAL_...]"}}}]}}
+```
+
+pi-go reads that variable at session build time and mounts each entry as an MCP
+server (`internal/acp/server/kagent_mcp.go`). Two consequences worth knowing:
+
+- **The credential is a placeholder, not a secret.** `KAGENT_ENV[...]` is
+  substituted by the Substrate egress gateway on the wire, so the real token
+  never enters the sandbox. pi-go passes the header through verbatim; rewriting
+  or dropping it breaks authentication.
+- **The egress destination must still be granted.** A credential placeholder
+  authorises nothing on its own: an `EgressPolicy` must list the origin (see the
+  `EgressPolicy` in the rendered manifest), and an Agent must reference it via
+  `spec.egressPolicyRefs`. Without that reference the policy is inert.
+
 ## Option A: local registry (recommended)
 
 The local kagent Kind setup uses a registry reachable as `localhost:5001` from
@@ -190,6 +266,22 @@ a blank `READY`, for the stock `kagent` Harness as much as for `pi-go`, and a
 `Harness: Ready=True` check would fail on a perfectly healthy deployment. A
 Harness that is admitted but broken still shows up as `Ready=False` on its
 AgentTemplate.
+
+> **Changed at kagent v1.0.0-rc1.** The controller no longer writes *either*
+> status: rc1 removed `HarnessStatus` and the AgentTemplate status subresource
+> entirely (`kagent#3454`). On rc1 the `status.harnesses[0].conditions` query
+> above returns nothing, and the readiness surface is `Agent.status`
+> (`conditions`, `desiredRevision`, `latestSuccessfulRevision`,
+> `observedGeneration`, `warnings`, `workloadImage`):
+>
+> ```bash
+> kubectl get agent <name> -n kagent \
+>   -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+> ```
+>
+> The AgentTemplate conditions described above are correct for v1alpha3
+> controllers before rc1. See [kagent-substrate-rc1.md](../../docs/kagent-substrate-rc1.md).
+
 
 If preparation fails, inspect the controller:
 

@@ -42,9 +42,14 @@ type initResources struct {
 	memStore     memory.Store
 	memWorker    *memory.Worker
 	sessionLog   *logger.Logger
-	sessionID    string // captured for resume hint on exit
+	stdLog       *logger.StdLog // detached before sessionLog closes
+	sessionID    string         // captured for resume hint on exit
 	bashSup      *tools.BashSupervisor
 	forgeManager *forgecontroller.Manager
+	// goalTool is the shared goal_complete controller. Held here between the tool
+	// set being built and the InitResult handing it to the TUI, which is the only
+	// side that knows which cycle is running.
+	goalTool *tools.GoalController
 
 	// memSummarizer, with memSessionID and memProject, describes the
 	// end-of-session summary written during cleanup. All three are empty when
@@ -68,6 +73,7 @@ func (r *initResources) cleanup() {
 		// Detach before closing: a late trace from an in-flight streaming body
 		// would otherwise write into a closed file.
 		httplog.SetSink(nil)
+		r.stdLog.Detach()
 		_ = r.sessionLog.Close()
 	}
 	if r.memWorker != nil {
@@ -116,6 +122,14 @@ func runInteractive(
 ) error {
 	initCh := make(chan tui.InitEvent, 32)
 
+	// Dependencies (adk's orphaned-call pruning, for one) write through the
+	// standard logger, which defaults to stderr and would paint into the TUI's
+	// frame. Redirected first, before the TUI or any init goroutine can log;
+	// the session log does not exist yet, so lines are held until deferredInit
+	// attaches it.
+	stdLog := logger.RedirectStdLog()
+	defer stdLog.Restore()
+
 	// Extension notices — a skipped MCP server, a rerouted docs source, an
 	// OAuth re-login, a blocked skill — must land in the chat, not on the
 	// terminal. The TUI paints its frame with direct cursor control, so a
@@ -151,7 +165,7 @@ func runInteractive(
 	extension.SetInteractiveOAuth(true)
 	defer extension.SetInteractiveOAuth(false)
 
-	var res initResources
+	res := initResources{stdLog: stdLog}
 	initDone := make(chan struct{})
 
 	// Create a child context so deferred init is canceled when the TUI exits.
@@ -332,6 +346,7 @@ func deferredInit(
 	sessionLog, logErr := logger.New()
 	if logErr == nil {
 		res.sessionLog = sessionLog
+		res.stdLog.Attach(sessionLog)
 		// --trace-http entries are dropped until the log file exists; the
 		// transport is built before this point. See the matching note in
 		// cli.go. Detached on shutdown where sessionLog is closed.
@@ -419,15 +434,17 @@ func deferredInit(
 			SystemNoticeCh:    noticeCh,
 			ContextBreakdown: buildContextBreakdown(
 				instructionParts, coreTools, mcpToolsets, ps.skills, ps.agentConfigs),
-			TokenTracker:   tokenTracker,
-			CompactMetrics: cbs.compactMetrics,
-			GitBranch:      ps.gitBranch,
-			DiffAdded:      ps.diffAdded,
-			DiffRemoved:    ps.diffRemoved,
-			MCPToolsets:    ps.mcpToolsets,
-			MCPServers:     buildMCPServerConfigs(cfg),
-			Tools:          coreTools,
-			NonMCPToolsets: nonMCPToolsets,
+			TokenTracker:    tokenTracker,
+			CompactMetrics:  cbs.compactMetrics,
+			GitBranch:       ps.gitBranch,
+			DiffAdded:       ps.diffAdded,
+			DiffRemoved:     ps.diffRemoved,
+			GoalTool:        res.goalTool,
+			BaseInstruction: instruction,
+			MCPToolsets:     ps.mcpToolsets,
+			MCPServers:      buildMCPServerConfigs(cfg),
+			Tools:           coreTools,
+			NonMCPToolsets:  nonMCPToolsets,
 		},
 	}
 
@@ -459,7 +476,9 @@ func deferredInitCoreTools(sandboxRoot, worktreeDir string, res *initResources) 
 	forgeManager := forgecontroller.NewManager()
 	res.forgeManager = forgeManager
 
-	options := append(coreToolOptions(bashSup), tools.WithForgeController(forgeManager))
+	goalOpt, goalTool := tools.WithGoal()
+	res.goalTool = goalTool
+	options := append(coreToolOptions(bashSup), tools.WithForgeController(forgeManager), goalOpt)
 	coreTools, err := tools.CoreTools(sandbox, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating core tools: %w", err)

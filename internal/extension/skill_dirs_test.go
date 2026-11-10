@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/dimetron/pi-go/internal/plugin"
 )
 
 func TestDefaultSkillDirs(t *testing.T) {
@@ -19,11 +21,11 @@ func TestDefaultSkillDirsIn(t *testing.T) {
 	root := t.TempDir()
 	piGoSkills := filepath.Join(root, ".pi-go", "skills")
 	claudeSkills := filepath.Join(root, ".claude", "skills")
-	if err := os.MkdirAll(piGoSkills, 0o755); err != nil {
-		t.Fatalf("create .pi-go skills dir: %v", err)
-	}
-	if err := os.MkdirAll(claudeSkills, 0o755); err != nil {
-		t.Fatalf("create .claude skills dir: %v", err)
+	agentsSkills := filepath.Join(root, ".agents", "skills")
+	for _, dir := range []string{piGoSkills, claudeSkills, agentsSkills} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create %s: %v", dir, err)
+		}
 	}
 
 	dirs := DefaultSkillDirsIn(root)
@@ -32,9 +34,10 @@ func TestDefaultSkillDirsIn(t *testing.T) {
 	}
 	t.Logf("DefaultSkillDirsIn: %v", dirs)
 
-	// Verify it finds .claude/skills and .pi-go/skills.
+	// Verify it finds .claude/skills, .pi-go/skills and .agents/skills.
 	foundClaude := false
 	foundPigo := false
+	foundAgents := false
 	for _, d := range dirs {
 		if d == claudeSkills {
 			foundClaude = true
@@ -42,12 +45,18 @@ func TestDefaultSkillDirsIn(t *testing.T) {
 		if d == piGoSkills {
 			foundPigo = true
 		}
+		if d == agentsSkills {
+			foundAgents = true
+		}
 	}
 	if !foundClaude {
 		t.Error("did not find .claude/skills")
 	}
 	if !foundPigo {
 		t.Error("did not find .pi-go/skills")
+	}
+	if !foundAgents {
+		t.Error("did not find .agents/skills")
 	}
 }
 
@@ -63,15 +72,52 @@ func TestDefaultSkillDirsInUserHome(t *testing.T) {
 	}
 
 	userDir := filepath.Join(userHome, ".pi-go", "skills")
+	agentsDir := filepath.Join(userHome, ".agents", "skills")
 	found := false
+	foundAgents := false
 	for _, d := range dirs {
 		if d == userDir {
 			found = true
-			break
+		}
+		if d == agentsDir {
+			foundAgents = true
 		}
 	}
 	if !found {
 		t.Errorf("user-level skill dir %q not included", userDir)
+	}
+	if !foundAgents {
+		t.Errorf("~/.agents/skills dir %q not included", agentsDir)
+	}
+}
+
+// ~/.agents/skills is the cross-agent layout. It must be searched even when
+// PI_GO_HOME relocates pi-go's own home, and it must rank below ~/.pi-go/skills
+// so a skill the user installed with `pi skills add` still wins a name clash.
+func TestDefaultSkillDirsIncludesAgentsSkills(t *testing.T) {
+	home := setTestHome(t)
+	t.Setenv("PI_GO_HOME", filepath.Join(home, "relocated"))
+
+	dirs := DefaultSkillDirsIn(t.TempDir())
+	agentsDir := filepath.Join(home, ".agents", "skills")
+
+	agentsIdx, pigoIdx := -1, -1
+	for i, d := range dirs {
+		switch d {
+		case agentsDir:
+			agentsIdx = i
+		case filepath.Join(home, "relocated", "skills"):
+			pigoIdx = i
+		}
+	}
+	if agentsIdx < 0 {
+		t.Fatalf("~/.agents/skills not included in %v", dirs)
+	}
+	if pigoIdx < 0 {
+		t.Fatalf("PI_GO_HOME skills dir not included in %v", dirs)
+	}
+	if agentsIdx > pigoIdx {
+		t.Errorf("~/.agents/skills (idx %d) must precede PI_GO_HOME/skills (idx %d): later dirs win", agentsIdx, pigoIdx)
 	}
 }
 
@@ -177,5 +223,57 @@ func writeSkillFile(t *testing.T, dir, name, body string) {
 	content := "---\nname: " + name + "\ndescription: test\n---\n" + body + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// PI_GO_HOME relocates the directory `pi skills add` installs into. Loading
+// must read the same place, or an install would report success into a
+// directory no session ever scans.
+func TestDefaultSkillDirsHonorsPiGoHome(t *testing.T) {
+	piHome := t.TempDir()
+	t.Setenv("PI_GO_HOME", piHome)
+
+	want := filepath.Join(piHome, "skills")
+	found := false
+	for _, d := range DefaultSkillDirsIn(t.TempDir()) {
+		if d == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("PI_GO_HOME skills dir %q not included in %v", want, DefaultSkillDirsIn(t.TempDir()))
+	}
+}
+
+// A plugin installed under a relocated PI_GO_HOME must be visible too. The
+// registry lives under the same home as the skills directory, so resolving one
+// from PI_GO_HOME and the other from ~/.pi-go would load user skills while
+// silently skipping every plugin alongside them.
+func TestDefaultSkillDirsHonorsPiGoHomeForPlugins(t *testing.T) {
+	piHome := t.TempDir()
+	t.Setenv("PI_GO_HOME", piHome)
+
+	pluginSkills := filepath.Join(plugin.Root(piHome), "demo", "skills")
+	writeSkillFile(t, filepath.Join(pluginSkills, "demo-skill"), "demo-skill", "from a plugin")
+
+	reg := plugin.NewRegistry()
+	reg.Plugins["demo"] = plugin.Installed{
+		Name:        "demo",
+		SkillsDir:   filepath.Join("skills"),
+		InstalledAt: "2026-01-01T00:00:00Z",
+	}
+	if err := reg.Save(piHome); err != nil {
+		t.Fatalf("saving registry: %v", err)
+	}
+
+	dirs := DefaultSkillDirsIn(t.TempDir())
+	found := false
+	for _, d := range dirs {
+		if d == pluginSkills {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("plugin skills dir %q from PI_GO_HOME not included in %v", pluginSkills, dirs)
 	}
 }

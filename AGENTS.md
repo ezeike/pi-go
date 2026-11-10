@@ -435,7 +435,7 @@ must not be there either.
 
 ## Build, test, lint
 
-Go 1.27.0. Use the Makefile rather than raw `go` invocations where a target
+Go 1.27.3. Use the Makefile rather than raw `go` invocations where a target
 exists:
 
 ```bash
@@ -451,6 +451,27 @@ make lint           # golangci-lint v2
 make vet
 make check-cve
 ```
+
+### Tooling and verification are Go, not Python
+
+Everything a contributor or an agent runs here is Go. There is no Python in the
+toolchain, no `requirements.txt`, and no script that assumes an interpreter is on
+`PATH` beyond the Go toolchain itself.
+
+- **Verification harnesses live in `hack/`** as `go run` targets, following
+  `hack/vulngate`: a `main.go` for the command and a `main_test.go` beside it. The
+  tests matter as much as the command — a checker nobody tests is one more thing
+  trusted without evidence.
+- **Formal checks:** `hack/formal/check.sh` runs the TLA+ models and calls
+  `go run ./hack/formal/lint/main` for the structural lint. `hack/formal/lint` is
+  a normal Go package with a test per defect it catches.
+- **Shell is for orchestration only** — locating a JDK, invoking TLC, driving
+  `git`. Parsing a file, deciding a verdict, or accumulating results belongs in
+  Go, where it can be tested.
+
+If a task seems to need Python, it needs a Go program under `hack/` instead. If a
+third-party tool ships only Python, say so and check with the user rather than
+adding an interpreter dependency to the build.
 
 ### Two failures macOS cannot catch, but Windows CI will
 

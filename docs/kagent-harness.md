@@ -16,6 +16,7 @@ Docs in this section:
 | `specs/kagent/manifests.yaml.tmpl` | `Harness` + `AgentTemplate` template |
 | `specs/kagent/render-manifests.sh` | Renders that template against a digest-pinned image |
 | `scripts/install-kagent.sh` | One-liner installer: applies a release's manifest to a cluster |
+| `docs/kagent-mcp.md` | Wiring MCP servers into the harness, with the remote GitHub MCP server as the worked example |
 
 ## What the adapter image contains
 
@@ -38,8 +39,10 @@ gVisor sandbox), so the image bakes in the tools a coding agent needs:
 | `curl`, `wget` | fetch tarballs and API payloads |
 | `jq` | JSON manipulation |
 | `python3` + `pip` | scripting/parsing helper |
+| `gh` | GitHub CLI — PRs, issues, releases, `gh api` (pinned release + SHA-256) |
+| `gcx` | Grafana `gcx` — Grafana Cloud/LGTM CLI (pinned release + SHA-256) |
 | `go` | build/run Go projects (installed via `arkade system install go`) |
-| `arkade` | on-demand CLI installs (`arkade get kubectl helm gh rg ...`) |
+| `arkade` | on-demand CLI installs (`arkade get kubectl helm rg ...`) |
 | `build-essential`, `unzip`, `xz-utils`, `zip`, `tar` | build + archive support |
 | `vim-tiny` | minimal editor for the bash tool |
 
@@ -105,6 +108,36 @@ durable directory, so one actor cannot read another's transcripts.
 
 The ACP server (`pi acp-server`) persists sessions the same way and exposes
 them through `session/load`, `session/resume` and `session/list`.
+
+## Calling other agents from inside a harness
+
+A harness built by `pi a2a` also gets three tools that talk to the kagent
+control plane, so it can discover and call sibling agents without each one
+being written into `config.json`:
+
+| Tool | What it does |
+|---|---|
+| `kagent_list_agents` | Lists agent instances in the namespace, with the `instance_id` needed to call one. Optional `agent_template` / `harness` filters. |
+| `kagent_create_agent` | Creates an instance from a `(harness, agent_template)` pair and returns its `instance_id`. |
+| `kagent_call_agent` | Sends a prompt to an agent over A2A and returns its reply. Accepts an `instance_id` directly, or a template name (an existing READY instance is reused, one is created if none is running). |
+
+They are wired only into the A2A harness server (`buildToolsetsFromCfg(cfg,
+true)` in `internal/acp/server/runtime.go`), not into an editor's `pi
+acp-server` backend, which has no controller to talk to. Nothing is registered
+unless a controller URL is known, so a `pi a2a` process outside kagent simply
+gains no tools.
+
+The endpoint comes from the environment the kagent compiler injects:
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `KAGENT_API_URL` | Controller base URL, e.g. `http://kagent-controller.kagent:8083` | none — no URL means no tools |
+| `KAGENT_NAMESPACE` | Namespace the instance calls are scoped to | `kagent` |
+| `PI_KAGENT_USER` | Identity sent as `x-user-id` | `admin@kagent.dev` |
+
+Note that a **managed** (`spec.kagent`) harness gets `KAGENT_API_URL` injected
+by the compiler, but a BYO harness does not — add it to `spec.env` explicitly
+if you switch the harness to `spec.byo`.
 
 ## Model configuration
 

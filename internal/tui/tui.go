@@ -20,6 +20,7 @@ import (
 	"github.com/dimetron/pi-go/internal/config"
 	"github.com/dimetron/pi-go/internal/extension"
 	"github.com/dimetron/pi-go/internal/palace"
+	pisession "github.com/dimetron/pi-go/internal/session"
 	"github.com/dimetron/pi-go/internal/sop"
 	"github.com/dimetron/pi-go/internal/subagent"
 )
@@ -153,6 +154,17 @@ type model struct {
 
 	// Run flow state (/run command).
 	run *runState
+
+	// goal is the session's /goal objective, or nil when none is set. It is
+	// stored as a pointer so "loaded from disk", "just set" and "just completed"
+	// are one code path: everything downstream asks whether the goal is nil, not
+	// how it got there.
+	goal *pisession.Goal
+	// goalCanceled stops the loop without changing the goal's status. Esc during
+	// an automatic cycle, or hitting the cycle budget, sets it — the objective
+	// stays active (so /goal resume continues it) but no further turn starts on
+	// its own. /goal set, /goal resume and clearGoal reset it.
+	goalCanceled bool
 
 	// prAutofix is the in-flight /pr-autofix run, or nil. Unlike run, it holds
 	// no copy of the workflow: the SOP is the workflow and the engine walks it.
@@ -754,7 +766,13 @@ func (m *model) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 // tool calls in flight finish; Esc is the way to stop a turn.
 func (m *model) handleInputSubmit(msg InputSubmitMsg) (tea.Model, tea.Cmd, bool) {
 	if strings.HasPrefix(msg.Text, "/") {
-		if m.running {
+		// The goal controls are the exception to "no slash commands while a turn
+		// runs". The loop starts its next cycle from handleAgentDone, before the
+		// event loop sees another keystroke, so dropping /goal pause or /goal clear
+		// here made both unreachable until the budget was spent — the user could see
+		// the cycle counter climbing and have no way to stop it. Pause and clear take
+		// effect at the turn boundary, which is what stopping a loop means anyway.
+		if m.running && !isGoalControlCommand(msg.Text) {
 			return m, nil, true
 		}
 		model, cmd := m.handleSlashCommand(msg.Text)
@@ -973,8 +991,15 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// the click as "deselect".
 	if m.hitContextClear(mouse.X, mouse.Y) {
 		m.sel = selection{}
+		// Clearing history while a turn runs empties the events the turn is
+		// still writing to: its tool calls lose their results and it keeps
+		// running with m.running already false, so nothing can cancel it. Stop
+		// the turn the way Esc does first, so the rewrite happens at a boundary
+		// and the queue is handed on. Esc and Ctrl+C remain the way to stop a
+		// turn on purpose; this click is a request to forget, not to continue.
+		cmd := m.cancelAgent()
 		m.clearConversation()
-		return m, m.setFlash("Context cleared")
+		return m, tea.Batch(cmd, m.setFlash("Context cleared"))
 	}
 	// Only the chat panel is selectable. A press on the rail or in the sidebar
 	// starts nothing — and clears any highlight, the same as a click anywhere
@@ -1351,6 +1376,9 @@ func (m *model) handleHistoryKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	}
 	switch key.Code {
 	case tea.KeyUp:
+		if !m.inputModel.AtFirstRow() {
+			return nil, nil, false // move within a multi-line prompt
+		}
 		if len(m.inputModel.History) == 0 {
 			m.chatModel.ScrollUp(3, m.height)
 			return m, nil, true
@@ -1358,6 +1386,9 @@ func (m *model) handleHistoryKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		m.newSearchPopup(searchModeHistory)
 		return m, nil, true
 	case tea.KeyDown:
+		if !m.inputModel.AtLastRow() {
+			return nil, nil, false
+		}
 		m.chatModel.ScrollDown(3)
 		return m, nil, true
 	}
@@ -1797,6 +1828,11 @@ func (m *model) sidebarRenderInput(sidebarWidth, panelRows int) SidebarRenderInp
 		Artifacts:     m.artifactList(),
 		Palette:       m.palette,
 	}
+	if m.goal != nil {
+		in.Goal = m.goal
+		in.GoalMaxCycles = goalMaxCycles(m.goal.MaxCycles)
+		in.GoalStopped = m.goalCanceled
+	}
 	if m.run != nil && m.run.phase != "" {
 		in.RunChecklist = m.run.checklist
 		in.RunPhase = m.run.phase
@@ -2050,6 +2086,9 @@ func (m *model) messageViewportHeight() int {
 		m.statusModel.Width = m.width
 	}
 	statusBar := m.statusModel.Render(m.statusRenderInput())
+	// The prompt grows with its text, so size it to the terminal before
+	// counting its rows; View does the same on every frame.
+	m.inputModel.SetWidth(max(0, m.width-3))
 	inputArea := m.inputModel.View(m.loading)
 	statusLines := strings.Count(statusBar, "\n") + 1
 	inputLines := strings.Count(inputArea, "\n") + 1
@@ -2410,6 +2449,8 @@ func (m *model) handleInitEvent(msg initEventMsg) (tea.Model, tea.Cmd) {
 		m.statusModel.GitBranch = r.GitBranch
 		m.diffAdded = r.DiffAdded
 		m.diffRemoved = r.DiffRemoved
+		m.cfg.GoalTool = r.GoalTool
+		m.cfg.BaseInstruction = r.BaseInstruction
 		m.cfg.MCPToolsets = r.MCPToolsets
 		m.cfg.MCPServers = r.MCPServers
 		m.cfg.Tools = r.Tools
@@ -2423,6 +2464,7 @@ func (m *model) handleInitEvent(msg initEventMsg) (tea.Model, tea.Cmd) {
 		// tracker that were just installed above.
 		if r.Resumed {
 			m.restoreSession()
+			m.restoreGoal()
 		}
 
 		var cmds []tea.Cmd

@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	a2aserver "github.com/dimetron/pi-go/internal/a2a/server"
 	acpserver "github.com/dimetron/pi-go/internal/acp/server"
+	"github.com/dimetron/pi-go/internal/kagent"
 )
 
 func newA2AServerCmd() *cobra.Command {
@@ -89,6 +91,10 @@ func runA2AServer(cmd *cobra.Command, _ []string) error {
 		Insecure: flagInsecure,
 		System:   system,
 		Version:  versionString(),
+		// This server is the kagent harness, so the session gets the kagent
+		// control-plane tools. They are inert unless KAGENT_API_URL is set,
+		// which the kagent compiler injects.
+		KagentTools: true,
 	}
 	if sessionSvc := openServerSessionStore(ctx, logger); sessionSvc != nil {
 		rt.SessionService = sessionSvc
@@ -103,10 +109,25 @@ func runA2AServer(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Behind the kagent gateway the task state must live where the gateway
+	// reads it, or a correct turn still fails with "task not found". The
+	// controller address comes from the deployment; when it is absent this runs
+	// as a standalone A2A server with an in-memory store.
+	var tasks a2aserver.TaskStore
+	if tasksURL := kagentTaskStoreAddress(); tasksURL != "" {
+		store, err := kagent.New(kagent.Config{Address: tasksURL})
+		if err != nil {
+			return fmt.Errorf("a2a server: %w", err)
+		}
+		defer func() { _ = store.Close() }()
+		tasks = store
+	}
+
 	if err := a2aserver.Serve(ctx, a2aserver.ServeConfig{
 		Addr:      addr,
 		ReadyAddr: flagA2AReadyAddr,
 		Handler:   handler,
+		TaskStore: tasks,
 		Logger:    logger,
 	}); err != nil {
 		if f != nil {
@@ -115,4 +136,25 @@ func runA2AServer(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("a2a server: %w", err)
 	}
 	return nil
+}
+
+// kagentTaskStoreAddress returns the controller gRPC address for task
+// persistence, or "" to keep tasks in memory.
+//
+// KAGENT_TASK_STORE_ADDRESS is the only source, deliberately. It used to fall
+// back to `control_plane_url` inside KAGENT_CONFIG_JSON, which could never
+// resolve: that blob is the ADK agent config (model, instruction, session DB —
+// see go/adk/pkg/config/config_materialize.go upstream) and has never carried
+// a URL. The fallback read as "task persistence is automatic" when in fact
+// nothing set the one variable that works.
+//
+// Persistence is opt-in because the service it targets is not universal:
+// kagent's current gateway writes task state into its own Postgres from the
+// runtime's A2A event stream (a2agateway/gateway.go storeEvent →
+// StoreAgentInstanceTaskEvent) and does not serve kagent.runtime.v1
+// TaskStoreService at all. Pointing this at such a controller turns a working
+// turn into a failed RPC, so the address must be given explicitly, by a
+// deployment that knows its controller serves it.
+func kagentTaskStoreAddress() string {
+	return strings.TrimSpace(os.Getenv("KAGENT_TASK_STORE_ADDRESS"))
 }
