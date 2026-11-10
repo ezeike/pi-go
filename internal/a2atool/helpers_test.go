@@ -82,6 +82,19 @@ type runnableTool interface {
 	Run(ctx agent.Context, args any) (map[string]any, error)
 }
 
+func runTool(t *testing.T, tl any, args map[string]any) map[string]any {
+	t.Helper()
+	r, ok := tl.(runnableTool)
+	if !ok {
+		t.Fatalf("tool %T does not implement Run", tl)
+	}
+	out, err := r.Run(mockToolCtx{Context: context.Background()}, args)
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	return out
+}
+
 // runNamedTool invokes one of a tool set by name through the same Run path the
 // ADK runner uses, so argument decoding is covered.
 func runNamedTool(t *testing.T, ts []tool.Tool, name string, args map[string]any) (map[string]any, error) {

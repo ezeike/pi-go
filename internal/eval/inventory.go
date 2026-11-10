@@ -111,7 +111,7 @@ func Inventory(dir string) ([]ToolInfo, error) {
 	// them from the environment would leave them invisible to the coverage
 	// gate on any machine that is not itself a harness.
 	add("kagent", "kagent-controller",
-		tools.KagentTools(tools.NewKagentToolsetFor("http://kagent-controller.invalid", "", "")))
+		a2atool.KagentTools(a2atool.NewKagentToolsetFor("http://kagent-controller.invalid", "", "")))
 
 	palaceTools, err := palace.PalaceTools(&palace.Palace{})
 	if err != nil {

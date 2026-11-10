@@ -1,4 +1,4 @@
-package tools
+package a2atool
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 
 	"github.com/dimetron/pi-go/internal/kagentapi"
+	"github.com/dimetron/pi-go/internal/tools"
 )
 
 // kagentToolTimeout bounds one control-plane call. Listing instances and
@@ -132,7 +133,7 @@ func (t *KagentToolset) newListAgentsTool() (tool.Tool, error) {
 	desc := "List the kagent agent instances available to this agent, with the instance_id needed to call one. " +
 		"Use it before kagent_call_agent to discover what exists. " +
 		"Parameters: agent_template (optional, narrow to one template), harness (optional, narrow to one harness)."
-	return newTool("kagent_list_agents", desc,
+	return tools.NewTool("kagent_list_agents", desc,
 		func(ctx agent.Context, input KagentListAgentsInput) (KagentListAgentsOutput, error) {
 			return t.listAgents(ctx, input), nil
 		},
@@ -205,7 +206,7 @@ func (t *KagentToolset) newCreateAgentTool() (tool.Tool, error) {
 		"Parameters: agent_template (required, the template to instantiate), " +
 		"harness (the runtime adapter to pair with it), name (optional, display name). " +
 		"The instance is only callable once it reports READY."
-	return newTool("kagent_create_agent", desc,
+	return tools.NewTool("kagent_create_agent", desc,
 		func(ctx agent.Context, input KagentCreateAgentInput) (KagentCreateAgentOutput, error) {
 			return t.createAgent(ctx, input), nil
 		},
@@ -263,7 +264,7 @@ func (t *KagentToolset) newCallAgentTool() (tool.Tool, error) {
 	desc := "Send a prompt to another kagent agent over A2A and return its reply. " +
 		"Parameters: agent (instance_id from kagent_list_agents, or an agent template name to route to), " +
 		"prompt (the message), stream (optional, use the streaming transport)."
-	return newTool("kagent_call_agent", desc,
+	return tools.NewTool("kagent_call_agent", desc,
 		func(ctx agent.Context, input KagentCallAgentInput) (KagentCallAgentOutput, error) {
 			return t.callAgent(ctx, input), nil
 		},

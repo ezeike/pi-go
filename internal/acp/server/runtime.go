@@ -18,6 +18,7 @@ import (
 	adksession "google.golang.org/adk/v2/session"
 	adktool "google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/a2atool"
 	"github.com/dimetron/pi-go/internal/acp/client/forgecontroller"
 	"github.com/dimetron/pi-go/internal/acp/server/adapter"
 	piagent "github.com/dimetron/pi-go/internal/agent"
@@ -646,7 +647,7 @@ func buildToolsetsFromCfg(cfg config.Config, kagent bool) []adktool.Toolset {
 	if kagent {
 		// NewKagentToolset returns nil when no controller URL is known, so a
 		// harness running outside kagent simply gains nothing.
-		if ts := tools.NewKagentToolset(); ts != nil {
+		if ts := a2atool.NewKagentToolset(); ts != nil {
 			toolsets = append(toolsets, ts)
 		}
 	}
